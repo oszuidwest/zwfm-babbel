@@ -179,13 +179,13 @@ GET /api/v1/stations/{station_id}/bulletins/latest
 
 ### Database connection pool
 
-Use these environment variables to override the database connection pool defaults:
+Use this environment variable to override the database connection pool default:
 
 | Env var | Default | Description |
 |---|---:|---|
-| `BABBEL_DB_MAX_OPEN_CONNS` | `100` | The maximum number of open database connections. |
-| `BABBEL_DB_MAX_IDLE_CONNS` | `BABBEL_DB_MAX_OPEN_CONNS` | The maximum number of idle database connections in the pool. |
-| `BABBEL_DB_CONN_MAX_LIFETIME` | `1h` | The maximum lifetime of a database connection that Babbel uses again. |
+| `BABBEL_DB_MAX_OPEN_CONNS` | `100` | The maximum number of open database connections. Babbel can keep all of them idle in the pool. |
+
+Babbel reuses a database connection for at most 1 hour. The connect timeout is 10 seconds. The read and write timeouts are 2 minutes. These deadlines also bound queries and COMMIT when the database stops answering.
 
 ### Audio tools
 

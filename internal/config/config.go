@@ -116,17 +116,16 @@ type ServerConfig struct {
 
 // DatabaseConfig defines MySQL database connection parameters.
 type DatabaseConfig struct {
-	Host            string        `env:"HOST" envDefault:"localhost"`
-	Port            int           `env:"PORT" envDefault:"3306"`
-	User            string        `env:"USER" envDefault:"babbel"`
-	Password        string        `env:"PASSWORD"`
-	Database        string        `env:"NAME" envDefault:"babbel"`
-	MaxOpenConns    int           `env:"MAX_OPEN_CONNS" envDefault:"100"`
-	MaxIdleConns    int           `env:"MAX_IDLE_CONNS"`
-	ConnMaxLifetime time.Duration `env:"CONN_MAX_LIFETIME" envDefault:"1h"`
-	ConnectTimeout  time.Duration `env:"CONNECT_TIMEOUT" envDefault:"10s"`
-	ReadTimeout     time.Duration `env:"READ_TIMEOUT" envDefault:"2m"`
-	WriteTimeout    time.Duration `env:"WRITE_TIMEOUT" envDefault:"2m"`
+	// Host is host or host:port. The driver adds port 3306 when none is given.
+	Host            string `env:"HOST" envDefault:"localhost"`
+	User            string `env:"USER" envDefault:"babbel"`
+	Password        string `env:"PASSWORD"`
+	Database        string `env:"NAME" envDefault:"babbel"`
+	MaxOpenConns    int    `env:"MAX_OPEN_CONNS" envDefault:"100"`
+	ConnMaxLifetime time.Duration
+	ConnectTimeout  time.Duration
+	ReadTimeout     time.Duration
+	WriteTimeout    time.Duration
 }
 
 // MaxPasswordBytes is the longest password bcrypt accepts.
@@ -183,11 +182,6 @@ func Load() (*Config, error) {
 	if err := env.ParseWithOptions(&cfg, env.Options{Prefix: "BABBEL_"}); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
-	// A request can hold several connections at once. Keeping them all idle
-	// avoids a reconnect for each connection above the limit during a burst.
-	if os.Getenv("BABBEL_DB_MAX_IDLE_CONNS") == "" {
-		cfg.Database.MaxIdleConns = cfg.Database.MaxOpenConns
-	}
 	return &cfg, nil
 }
 
@@ -205,6 +199,14 @@ func fixedConfig() Config {
 		Automation:   AutomationConfig{GenerationTimeout: generationTimeout},
 		BulletinJobs: BulletinJobConfig{GenerationTimeout: generationTimeout},
 		TTS:          TTSConfig{RequestTimeout: ttsRequestTimeout},
+		Database: DatabaseConfig{
+			ConnMaxLifetime: time.Hour,
+			// Transport deadlines also bound queries and COMMIT when the peer
+			// stops answering. Read and write allow long maintenance queries.
+			ConnectTimeout: 10 * time.Second,
+			ReadTimeout:    2 * time.Minute,
+			WriteTimeout:   2 * time.Minute,
+		},
 	}
 }
 
@@ -355,17 +357,14 @@ func (c *Config) validateCore() error {
 		return fmt.Errorf("invalid environment: %s (must be development or production)", c.Environment)
 	}
 
-	if c.Database.Port < 1 || c.Database.Port > 65535 {
-		return fmt.Errorf("invalid database port: %d (must be 1-65535)", c.Database.Port)
+	if c.Database.MaxOpenConns < 1 {
+		return fmt.Errorf("BABBEL_DB_MAX_OPEN_CONNS must be >= 1 (got %d)", c.Database.MaxOpenConns)
 	}
 
 	if c.Database.Password == "" {
 		return errors.New("BABBEL_DB_PASSWORD is required")
 	}
 
-	if err := c.validateDatabasePool(); err != nil {
-		return err
-	}
 	// A zero retention would purge all bulletin audio at the next cleanup,
 	// except the newest bulletin per station.
 	if c.Audio.BulletinRetention <= 0 {
@@ -423,35 +422,6 @@ func (c *Config) validateAudioTools() error {
 	}
 	if err := validateAudioTool("FFprobe", c.Audio.FFprobePath); err != nil {
 		return err
-	}
-	return nil
-}
-
-func (c *Config) validateDatabasePool() error {
-	if c.Database.MaxOpenConns < 1 {
-		return fmt.Errorf("BABBEL_DB_MAX_OPEN_CONNS must be >= 1 (got %d)", c.Database.MaxOpenConns)
-	}
-	if c.Database.MaxIdleConns < 0 {
-		return fmt.Errorf("BABBEL_DB_MAX_IDLE_CONNS must be >= 0 (got %d)", c.Database.MaxIdleConns)
-	}
-	if c.Database.MaxIdleConns > c.Database.MaxOpenConns {
-		return fmt.Errorf(
-			"BABBEL_DB_MAX_IDLE_CONNS must be <= BABBEL_DB_MAX_OPEN_CONNS (got %d > %d)",
-			c.Database.MaxIdleConns,
-			c.Database.MaxOpenConns,
-		)
-	}
-	if c.Database.ConnMaxLifetime <= 0 {
-		return fmt.Errorf("BABBEL_DB_CONN_MAX_LIFETIME must be > 0 (got %s)", c.Database.ConnMaxLifetime)
-	}
-	if c.Database.ConnectTimeout <= 0 {
-		return fmt.Errorf("BABBEL_DB_CONNECT_TIMEOUT must be > 0 (got %s)", c.Database.ConnectTimeout)
-	}
-	if c.Database.ReadTimeout <= 0 {
-		return fmt.Errorf("BABBEL_DB_READ_TIMEOUT must be > 0 (got %s)", c.Database.ReadTimeout)
-	}
-	if c.Database.WriteTimeout <= 0 {
-		return fmt.Errorf("BABBEL_DB_WRITE_TIMEOUT must be > 0 (got %s)", c.Database.WriteTimeout)
 	}
 	return nil
 }

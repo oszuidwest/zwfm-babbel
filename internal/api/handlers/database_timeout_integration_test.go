@@ -7,10 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -30,17 +28,9 @@ func openReadTimeoutDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	host, port, err := net.SplitHostPort(parsed.Addr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	portNumber, err := strconv.Atoi(port)
-	if err != nil {
-		t.Fatal(err)
-	}
 	db, err := database.NewGormDB(&config.Config{Database: config.DatabaseConfig{
-		Host: host, Port: portNumber, User: parsed.User, Password: parsed.Passwd, Database: parsed.DBName,
-		MaxOpenConns: 1, MaxIdleConns: 1, ConnMaxLifetime: time.Minute,
+		Host: parsed.Addr, User: parsed.User, Password: parsed.Passwd, Database: parsed.DBName,
+		MaxOpenConns: 1, ConnMaxLifetime: time.Minute,
 		ConnectTimeout: 5 * time.Second, ReadTimeout: 250 * time.Millisecond, WriteTimeout: time.Second,
 	}})
 	if err != nil {
