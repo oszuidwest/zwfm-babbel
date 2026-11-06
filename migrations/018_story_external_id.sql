@@ -8,7 +8,7 @@ ALTER TABLE stories
     ADD COLUMN external_url VARBINARY(500) NULL AFTER external_id,
     ADD UNIQUE KEY idx_stories_external_id (external_id);
 UPDATE stories s
-JOIN (SELECT MAX(id) AS id, JSON_VALUE(metadata, '$.wordpress_id') AS wordpress_id FROM stories
+JOIN (SELECT MAX(id) AS id, CAST(JSON_VALUE(metadata, '$.wordpress_id') AS BINARY) AS wordpress_id FROM stories
       GROUP BY wordpress_id HAVING wordpress_id IS NOT NULL) newest ON newest.id = s.id
 LEFT JOIN stories holder ON holder.external_id = newest.wordpress_id
 SET s.external_id = newest.wordpress_id,

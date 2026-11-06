@@ -74,9 +74,10 @@ stories share a post, only the newest gets the ID, because the index is unique;
 the others keep NULL. List those stories first and check that the newest is the
 one to keep:
 
-    SELECT JSON_VALUE(metadata, '$.wordpress_id') AS post, GROUP_CONCAT(id ORDER BY id) AS stories,
+    SELECT MIN(JSON_VALUE(metadata, '$.wordpress_id')) AS post, GROUP_CONCAT(id ORDER BY id) AS stories,
            GROUP_CONCAT(deleted_at IS NOT NULL ORDER BY id) AS deleted
-    FROM stories GROUP BY post HAVING post IS NOT NULL AND COUNT(*) > 1;
+    FROM stories GROUP BY CAST(JSON_VALUE(metadata, '$.wordpress_id') AS BINARY)
+    HAVING post IS NOT NULL AND COUNT(*) > 1;
 
 Stories from a client that still sends only `metadata.wordpress_id` get no
 `external_id`. Once all clients send it, run the `UPDATE` from `018` once more
