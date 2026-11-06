@@ -52,7 +52,7 @@ type BulletinJobService struct {
 		finalize func(context.Context, int64) error) (int64, error)
 }
 
-// NewBulletinJobService returns a stopped worker; cfg must be validated.
+// NewBulletinJobService returns a stopped worker.
 func NewBulletinJobService(
 	repo *repository.BulletinJobRepository,
 	bulletins *BulletinService,

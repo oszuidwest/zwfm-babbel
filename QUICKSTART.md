@@ -307,7 +307,6 @@ Enable TTS by setting an ElevenLabs API key, then restart the app:
 
 ```env
 BABBEL_ELEVENLABS_API_KEY=your-elevenlabs-api-key
-BABBEL_ELEVENLABS_TIMEOUT=60s
 ```
 
 Runtime credentials use environment variables. Babbel always sends ElevenLabs `eleven_v4`; voice-generation options live in the `tts_settings` database row and are managed through the API.
