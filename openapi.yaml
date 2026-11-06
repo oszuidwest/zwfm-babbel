@@ -1031,7 +1031,7 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 255
-                  pattern: '\S'
+                  pattern: '[^\s\x85]'
                   x-unique: true
                 elevenlabs_voice_id:
                   type: [string, 'null']
@@ -1116,7 +1116,7 @@ paths:
                   type: string
                   minLength: 1
                   maxLength: 255
-                  pattern: '\S'
+                  pattern: '[^\s\x85]'
                 elevenlabs_voice_id:
                   type: [string, 'null']
                   pattern: '^[A-Za-z0-9_-]{8,64}$'
@@ -1303,6 +1303,8 @@ paths:
                         end_date: "2024-01-27"
                         weekdays: 62
                         is_breaking: false
+                        external_id: "177604"
+                        external_url: "https://example.org/wp-admin/post.php?post=177604&action=edit"
                         created_at: "2024-01-20T10:00:00Z"
                         updated_at: "2024-01-20T10:00:00Z"
                         deleted_at: null
@@ -3775,7 +3777,7 @@ components:
           type: string
           minLength: 1
           maxLength: 255
-          pattern: '\S'
+          pattern: '[^\s\x85]'
           description: Unique station name (must be unique across all stations)
           x-unique: true
         max_stories_per_block:
@@ -4096,6 +4098,8 @@ components:
         - end_date
         - weekdays
         - is_breaking
+        - external_id
+        - external_url
         - created_at
         - updated_at
         - deleted_at
@@ -4153,6 +4157,12 @@ components:
         metadata:
           type: object
           additionalProperties: true
+        external_id:
+          type: [string, 'null']
+          description: ID of the story in the system that sent it, null if none. Set on create only.
+        external_url:
+          type: [string, 'null']
+          description: Link to the story in the system that sent it, null if none. Set on create only.
         created_at:
           type: string
           format: date-time
@@ -4180,12 +4190,12 @@ components:
           type: string
           minLength: 1
           maxLength: 500
-          pattern: '\S'
+          pattern: '[^\s\x85]'
           description: Story title
         text:
           type: string
           minLength: 1
-          pattern: '\S'
+          pattern: '[^\s\x85]'
           description: Story text content
         voice_id:
           type: [integer, 'null']
@@ -4228,6 +4238,23 @@ components:
             priority: "high"
             category: "breaking"
             source: "AP"
+        external_id:
+          type: [string, 'null']
+          maxLength: 100
+          pattern: '[^\s\x85]'
+          description: |
+            ID of the story in the system that sent it. Compared byte for byte. It cannot change
+            afterwards. An ID that any story already has, also a soft-deleted one, fails with 409
+            (`story.duplicate`). The limit counts bytes, so an ID within `maxLength` that is longer
+            than 100 bytes also fails with 422. Null counts as absent.
+        external_url:
+          type: [string, 'null']
+          maxLength: 500
+          pattern: '^[hH][tT][tT][pP][sS]?://'
+          description: |
+            Link to the story in the system that sent it, http or https. It cannot change afterwards.
+            The limit counts bytes, so a link within `maxLength` that is longer than 500 bytes also
+            fails with 422. Null counts as absent.
 
     StoryUpdate:
       type: object
@@ -4266,12 +4293,12 @@ components:
           type: [string, 'null']
           minLength: 1
           maxLength: 500
-          pattern: '\S'
+          pattern: '[^\s\x85]'
           description: Story title
         text:
           type: [string, 'null']
           minLength: 1
-          pattern: '\S'
+          pattern: '[^\s\x85]'
           description: Story text content
         voice_id:
           type: [integer, 'null']
@@ -4427,7 +4454,7 @@ components:
           type: string
           minLength: 1
           maxLength: 255
-          pattern: '\S'
+          pattern: '[^\s\x85]'
         password:
           type: string
           writeOnly: true
@@ -4493,7 +4520,7 @@ components:
           type: [string, 'null']
           minLength: 1
           maxLength: 255
-          pattern: '\S'
+          pattern: '[^\s\x85]'
           description: Null is treated as omit.
         password:
           type: [string, 'null']

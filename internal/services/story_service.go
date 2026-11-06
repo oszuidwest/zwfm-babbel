@@ -108,6 +108,9 @@ type CreateStoryRequest struct {
 	Weekdays   models.Weekdays
 	IsBreaking bool
 	Metadata   *datatypes.JSONMap
+
+	ExternalID  *string
+	ExternalURL *string
 }
 
 // UpdateStoryRequest carries PATCH-style story fields; nil leaves a field unchanged.
@@ -159,6 +162,8 @@ func (s *StoryService) Create(ctx context.Context, req *CreateStoryRequest) (int
 		Weekdays:    req.Weekdays,
 		IsBreaking:  req.IsBreaking,
 		Metadata:    req.Metadata,
+		ExternalID:  req.ExternalID,
+		ExternalURL: req.ExternalURL,
 	}
 
 	story, err := s.storyRepo.Create(ctx, data)

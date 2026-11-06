@@ -520,7 +520,7 @@ describe('openapi.yaml contract invariants', () => {
     Voice: ['id', 'name', 'created_at', 'updated_at'],
     Story: [
       'id', 'title', 'text', 'voice_id', 'audio_file', 'audio_url', 'duration_seconds',
-      'status', 'start_date', 'end_date', 'weekdays', 'is_breaking',
+      'status', 'start_date', 'end_date', 'weekdays', 'is_breaking', 'external_id', 'external_url',
       'created_at', 'updated_at', 'deleted_at'
     ],
     User: [

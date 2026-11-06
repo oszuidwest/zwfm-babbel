@@ -72,6 +72,8 @@ func (h *Handlers) CreateStory(c *gin.Context) {
 		Weekdays:    weekdays,
 		IsBreaking:  req.IsBreaking,
 		Metadata:    req.Metadata,
+		ExternalID:  req.ExternalID,
+		ExternalURL: req.ExternalURL,
 	}
 
 	id, err := h.storySvc.Create(c.Request.Context(), svcReq)

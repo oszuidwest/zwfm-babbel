@@ -40,6 +40,9 @@ type StoryCreateData struct {
 	Weekdays   models.Weekdays
 	IsBreaking bool
 	Metadata   *datatypes.JSONMap
+
+	ExternalID  *string
+	ExternalURL *string
 }
 
 // StoryRepository provides story data access using GORM.
@@ -66,6 +69,9 @@ func (r *StoryRepository) Create(ctx context.Context, data *StoryCreateData) (*m
 		Weekdays:   data.Weekdays,
 		IsBreaking: data.IsBreaking,
 		Metadata:   data.Metadata,
+
+		ExternalID:  data.ExternalID,
+		ExternalURL: data.ExternalURL,
 	}
 
 	err := r.inTx(ctx, func(ctx context.Context) error {

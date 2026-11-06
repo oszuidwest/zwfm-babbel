@@ -229,12 +229,44 @@ func TestBindJSON_StoryCreateRequest(t *testing.T) {
 	titleAt501 := strings.Repeat("A", 500) + "&amp;"
 	const dates = `"start_date":"2024-01-01","end_date":"2024-12-31"`
 
+	external := func(field, value string) string {
+		return `{"title":"T","text":"x",` + dates + `,"` + field + `":"` + value + `"}`
+	}
+	const urlStart = "https://example.org/" // 20 bytes
+
 	tests := []struct {
 		name   string
 		body   string
 		want   bindExpect
 		verify func(t *testing.T, req *StoryCreateRequest)
 	}{
+		{name: "ID of only U+0085", body: external("external_id", "\u0085"), want: bindExpect{status: 422, field: "external_id", code: "blank"}},
+		{name: "ID of only U+FEFF", body: external("external_id", "\uFEFF"), want: bindExpect{status: 422, field: "external_id", code: "blank"}},
+		{name: "ID of whitespace mix", body: external("external_id", " \u0085\uFEFF\u00A0"), want: bindExpect{status: 422, field: "external_id", code: "blank"}},
+		{name: "ID with a character next to U+FEFF", body: external("external_id", "a\uFEFF"), want: bindExpect{ok: true}},
+		{name: "external ID of 100 bytes", body: external("external_id", strings.Repeat("é", 50)), want: bindExpect{ok: true}},
+		{
+			name: "external ID of 51 characters and 102 bytes",
+			body: external("external_id", strings.Repeat("é", 51)),
+			want: bindExpect{status: 422, field: "external_id", code: "too_long"},
+		},
+		{name: "external URL of 500 bytes", body: external("external_url", urlStart+strings.Repeat("é", 240)), want: bindExpect{ok: true}},
+		{
+			name: "external URL of 261 characters and 502 bytes",
+			body: external("external_url", urlStart+strings.Repeat("é", 241)),
+			want: bindExpect{status: 422, field: "external_url", code: "too_long"},
+		},
+		{
+			name: "null external fields count as absent",
+			body: `{"title":"T","text":"x",` + dates + `,"external_id":null,"external_url":null}`,
+			want: bindExpect{ok: true},
+			verify: func(t *testing.T, req *StoryCreateRequest) {
+				t.Helper()
+				if req.ExternalID != nil || req.ExternalURL != nil {
+					t.Fatalf("external fields = %v, %v, want nil", req.ExternalID, req.ExternalURL)
+				}
+			},
+		},
 		{
 			name: "valid request",
 			body: `{"title":"Test Story","text":"Some content",` + dates + `}`,

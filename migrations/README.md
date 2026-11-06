@@ -58,3 +58,33 @@ run lists nothing, and remove those files from the processed audio directory
 by hand before Babbel starts again, since a running Babbel can recreate the
 pair and upload a jingle under the same name. Running it again changes
 nothing.
+
+Apply `018_story_external_id.sql` once, before deploying the Babbel version that
+stores `external_id` and `external_url`; Babbel can keep running. It fails on
+databases created from the current `001` snapshot, and on a second run. Set
+`@wordpress_url` in the same session to the WordPress address (`wp option get
+siteurl`), without a trailing slash, because the edit links are built from it.
+If the value is missing, not http:// or https://, or ends in a slash, it stops
+before changing anything, with an unknown column error that names this file:
+
+    mysql --init-command="SET @wordpress_url='https://example.org'" ... < 018_story_external_id.sql
+
+It copies `metadata.wordpress_id` to `external_id` and keeps `updated_at`. When
+stories share a post, only the one with the highest `id` gets the ID, because the
+index is unique; the others keep NULL. List those stories first and check that
+the one with the highest `id` is the one to keep. A story created after this
+check can still become the highest `id`, so run the migration right after it, or
+pause story writes if that matters:
+
+    SELECT MIN(JSON_VALUE(metadata, '$.wordpress_id')) AS post, GROUP_CONCAT(id ORDER BY id) AS stories,
+           GROUP_CONCAT(deleted_at IS NOT NULL ORDER BY id) AS deleted
+    FROM stories GROUP BY CAST(JSON_VALUE(metadata, '$.wordpress_id') AS BINARY)
+    HAVING post IS NOT NULL AND COUNT(*) > 1;
+
+Stories from a client that still sends only `metadata.wordpress_id` get no
+`external_id`. Once all clients send it, run the `UPDATE` from `018` once more
+for those stories, with `@wordpress_url` set as above: without it they get
+the ID but no link, and a rerun does not add it. A post whose ID a story already
+has is skipped: that story keeps the ID and its link, also when it is older or
+soft-deleted. A story that already has another ID keeps it, and the highest `id`
+without an ID gets the post's ID.

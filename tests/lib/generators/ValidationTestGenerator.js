@@ -80,7 +80,7 @@ function generateValidationTests(schema, setupFn = null) {
             [rules.required, 'empty string', `empty-${fieldName}`, ''],
             [rules.maxLength && rules.format !== 'email', 'exceeds max length', `maxlen-${fieldName}`, () => 'A'.repeat(rules.maxLength + 50), 'too_long'],
             [rules.minLength && rules.minLength > 1, 'below min length', `minlen-${fieldName}`, () => 'A'.repeat(rules.minLength - 1), 'too_short'],
-            [rules.pattern, 'violates pattern', `pattern-${fieldName}`, rules.pattern === '\\S' ? '   ' : '!!!invalid!!!', rules.pattern === '\\S' ? 'blank' : 'invalid_format'],
+            [rules.pattern, 'violates pattern', `pattern-${fieldName}`, rules.pattern === '[^\\s\\x85]' ? ' \u0085\uFEFF' : '!!!invalid!!!', rules.pattern === '[^\\s\\x85]' ? 'blank' : 'invalid_format'],
             [rules.format === 'email', 'has invalid email format', `format-${fieldName}`, 'not-an-email', 'invalid_format']
           ].filter(([enabled]) => enabled).forEach(([, label, suffix, value, code]) => {
             rejectCase(`when ${fieldName} ${label}, then returns 422`, suffix, data => {

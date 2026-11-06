@@ -278,8 +278,10 @@ type StoryCreateRequest struct {
 	// Weekdays is a models.Weekdays bitmask; 0 or omitted is stored as 127 (every day).
 	Weekdays int `json:"weekdays" binding:"gte=0,lte=127"`
 	// IsBreaking prioritizes the story for bulletin inclusion.
-	IsBreaking bool               `json:"is_breaking"`
-	Metadata   *datatypes.JSONMap `json:"metadata,omitempty"`
+	IsBreaking  bool               `json:"is_breaking"`
+	Metadata    *datatypes.JSONMap `json:"metadata,omitempty"`
+	ExternalID  *string            `json:"external_id" binding:"omitempty,notblank,maxbytes=100"`
+	ExternalURL *string            `json:"external_url" binding:"omitempty,http_url,maxbytes=500"`
 }
 
 // NormalizeText decodes HTML entities in text fields to plain Unicode.
@@ -537,6 +539,8 @@ func describeValidationError(e validator.FieldError) (code, message string) {
 			return apperrors.CodeOutOfRange, "must be at most " + param
 		}
 		return apperrors.CodeTooLong, "must be at most " + param + " characters"
+	case "maxbytes":
+		return apperrors.CodeTooLong, "must be at most " + param + " bytes"
 	case "gte":
 		return apperrors.CodeOutOfRange, "must be at least " + param
 	case "lte":

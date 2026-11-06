@@ -45,9 +45,12 @@ CREATE TABLE stories (
     weekdays TINYINT UNSIGNED NOT NULL DEFAULT 127,  -- Bitmask: Sun=1, Mon=2, Tue=4, Wed=8, Thu=16, Fri=32, Sat=64
     is_breaking BOOLEAN NOT NULL DEFAULT FALSE,
     metadata JSON,
+    external_id VARBINARY(100) NULL,  -- Compares byte for byte on MySQL and MariaDB
+    external_url VARBINARY(500) NULL,
     deleted_at TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY idx_stories_external_id (external_id),
     FOREIGN KEY (voice_id) REFERENCES voices(id) ON DELETE SET NULL
 );
 
