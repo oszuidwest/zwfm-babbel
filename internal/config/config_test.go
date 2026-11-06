@@ -84,9 +84,6 @@ func TestLoadNotificationConfig(t *testing.T) {
 	t.Setenv("BABBEL_NOTIFICATIONS_EMAIL_CLIENT_SECRET", "secret")
 	t.Setenv("BABBEL_NOTIFICATIONS_EMAIL_FROM_ADDRESS", "babbel@example.com")
 	t.Setenv("BABBEL_NOTIFICATIONS_EMAIL_RECIPIENTS", "admin@example.com,ops@example.com")
-	t.Setenv("BABBEL_NOTIFICATIONS_COOLDOWN", "2h")
-	t.Setenv("BABBEL_NOTIFICATIONS_FAILURE_THRESHOLD", "4")
-	t.Setenv("BABBEL_NOTIFICATIONS_FAILURE_WINDOW", "15m")
 
 	cfg, err := Load()
 	if err != nil {
@@ -98,7 +95,7 @@ func TestLoadNotificationConfig(t *testing.T) {
 	if got := cfg.Notifications.Email.ClientID; got != "abcdefab-1234-5678-90ab-abcdefabcdef" {
 		t.Fatalf("client ID = %q", got)
 	}
-	if cfg.Notifications.Cooldown != 2*time.Hour || cfg.Notifications.FailureThreshold != 4 || cfg.Notifications.FailureWindow != 15*time.Minute {
+	if cfg.Notifications.Cooldown != time.Hour || cfg.Notifications.FailureThreshold != 3 || cfg.Notifications.FailureWindow != 10*time.Minute {
 		t.Fatalf("unexpected notification policy: %+v", cfg.Notifications)
 	}
 }
@@ -114,9 +111,6 @@ func TestValidateNotifications(t *testing.T) {
 			FromAddress:  "babbel@example.com",
 			Recipients:   "admin@example.com,ops@example.com",
 		},
-		Cooldown:         time.Hour,
-		FailureThreshold: 3,
-		FailureWindow:    10 * time.Minute,
 	}
 
 	tests := []struct {
@@ -130,7 +124,6 @@ func TestValidateNotifications(t *testing.T) {
 		{name: "invalid sender", mutate: func(n *NotificationConfig) { n.Email.FromAddress = "not-an-address" }, wantErr: "FROM_ADDRESS must be a valid e-mail address"},
 		{name: "sender display name", mutate: func(n *NotificationConfig) { n.Email.FromAddress = "Babbel <babbel@example.com>" }, wantErr: "FROM_ADDRESS must contain only"},
 		{name: "empty recipients", mutate: func(n *NotificationConfig) { n.Email.Recipients = ", " }, wantErr: "must contain at least one"},
-		{name: "threshold too low", mutate: func(n *NotificationConfig) { n.FailureThreshold = 1 }, wantErr: "FAILURE_THRESHOLD must be at least 2"},
 	}
 
 	for _, tt := range tests {

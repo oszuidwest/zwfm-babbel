@@ -255,7 +255,7 @@ Do these steps to configure the e-mails:
 
 1. Give the Azure app registration the application permission `Mail.Send`.
 2. Give admin consent to this permission.
-3. Set the eight environment variables that follow.
+3. Set the five optional delivery settings that follow.
 
 | Env var | Default | Description |
 |---|---:|---|
@@ -264,9 +264,6 @@ Do these steps to configure the e-mails:
 | `BABBEL_NOTIFICATIONS_EMAIL_CLIENT_SECRET` | unset | The client secret of the app registration. |
 | `BABBEL_NOTIFICATIONS_EMAIL_FROM_ADDRESS` | unset | The shared mailbox or user that sends the e-mails. |
 | `BABBEL_NOTIFICATIONS_EMAIL_RECIPIENTS` | unset | The addresses of the administrators, with commas between them. |
-| `BABBEL_NOTIFICATIONS_COOLDOWN` | `1h` | The minimum time between two alerts for the same active condition and resource. |
-| `BABBEL_NOTIFICATIONS_FAILURE_THRESHOLD` | `3` | The number of transient failures that starts an alert. The minimum value is 2. |
-| `BABBEL_NOTIFICATIONS_FAILURE_WINDOW` | `10m` | The time in which Babbel counts the transient failures. |
 
 To disable the e-mails, keep the five `BABBEL_NOTIFICATIONS_EMAIL_*` values empty. If the configuration is not complete or not correct, Babbel does not start.
 
@@ -275,8 +272,10 @@ Each condition has one of these three policies:
 | Policy | When Babbel sends the alert |
 |---|---|
 | Immediate | When the condition occurs the first time. |
-| Thresholded | When the condition occurs `BABBEL_NOTIFICATIONS_FAILURE_THRESHOLD` times in `BABBEL_NOTIFICATIONS_FAILURE_WINDOW`. |
+| Thresholded | When the condition occurs 3 times in 10 minutes. |
 | Critical | Immediately before the process stops. The cooldown and the threshold do not apply. |
+
+The threshold of 3 times in 10 minutes and the cooldown of 1 hour between two alerts for the same active condition and resource are fixed.
 
 These conditions cause an immediate alert:
 
@@ -288,7 +287,7 @@ These conditions cause an immediate alert:
 - Babbel cannot read the bulletin output directory.
 - Babbel cannot parse the FFmpeg loudnorm output.
 - The ElevenLabs credentials are not valid.
-- The bulletin cleanup job or the story expiration job fails. These jobs run each day or each hour, too rarely to reach the failure threshold in the default failure window. While the failure continues, each run after the cooldown sends the alert again.
+- The bulletin cleanup job or the story expiration job fails. These jobs run each day or each hour, too rarely to reach the failure threshold in the failure window. While the failure continues, each run after the cooldown sends the alert again.
 - A scheduler job stops because of a panic.
 - Babbel locks a user account after too many bad login attempts.
 - The OAuth state or the OAuth token data is not valid.

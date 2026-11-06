@@ -46,10 +46,10 @@ type Config struct {
 type NotificationConfig struct {
 	Email GraphConfig `envPrefix:"EMAIL_"`
 	// Cooldown suppresses repeats for an active alert key.
-	Cooldown time.Duration `env:"COOLDOWN" envDefault:"1h"`
+	Cooldown time.Duration
 	// FailureThreshold failures within FailureWindow trigger an alert.
-	FailureThreshold int           `env:"FAILURE_THRESHOLD" envDefault:"3"`
-	FailureWindow    time.Duration `env:"FAILURE_WINDOW" envDefault:"10m"`
+	FailureThreshold int
+	FailureWindow    time.Duration
 }
 
 // GraphConfig defines Microsoft Graph client-credentials mail settings.
@@ -207,6 +207,11 @@ func fixedConfig() Config {
 			ReadTimeout:    2 * time.Minute,
 			WriteTimeout:   2 * time.Minute,
 		},
+		Notifications: NotificationConfig{
+			Cooldown:         time.Hour,
+			FailureThreshold: 3,
+			FailureWindow:    10 * time.Minute,
+		},
 	}
 }
 
@@ -251,18 +256,14 @@ var guidPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[
 // validateNotifications permits a completely empty optional configuration,
 // but rejects partial or malformed Microsoft Graph settings.
 func (c *Config) validateNotifications() error {
-	n := &c.Notifications
-	g := &n.Email
+	g := &c.Notifications.Email
 	if !hasGraphConfiguration(g) {
 		return nil
 	}
 	if err := validateGraphIdentifiers(g); err != nil {
 		return err
 	}
-	if err := validateGraphAddresses(g); err != nil {
-		return err
-	}
-	return validateNotificationPolicy(n)
+	return validateGraphAddresses(g)
 }
 
 // hasGraphConfiguration reports whether any required Graph setting is present.
@@ -312,20 +313,6 @@ func validateGraphAddresses(g *GraphConfig) error {
 		if parsed.Address != recipient {
 			return errors.New("BABBEL_NOTIFICATIONS_EMAIL_RECIPIENTS must contain only comma-separated e-mail addresses")
 		}
-	}
-	return nil
-}
-
-// validateNotificationPolicy checks threshold, window, and cooldown bounds.
-func validateNotificationPolicy(n *NotificationConfig) error {
-	if n.Cooldown <= 0 {
-		return errors.New("BABBEL_NOTIFICATIONS_COOLDOWN must be greater than zero")
-	}
-	if n.FailureThreshold < 2 {
-		return errors.New("BABBEL_NOTIFICATIONS_FAILURE_THRESHOLD must be at least 2")
-	}
-	if n.FailureWindow <= 0 {
-		return errors.New("BABBEL_NOTIFICATIONS_FAILURE_WINDOW must be greater than zero")
 	}
 	return nil
 }
