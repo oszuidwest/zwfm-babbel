@@ -25,9 +25,7 @@ LABEL org.opencontainers.image.source="https://github.com/oszuidwest/zwfm-babbel
 LABEL org.opencontainers.image.description="Headless REST API for generating audio news bulletins for radio stations"
 LABEL org.opencontainers.image.licenses="MIT"
 
-# CACHEBUST makes CI refresh security patches even when the base digest is unchanged.
-ARG CACHEBUST=static
-RUN echo "cachebust: ${CACHEBUST}" >/dev/null && apk update && apk upgrade --no-cache && apk add --no-cache ffmpeg tzdata && rm -rf /var/cache/apk/*
+RUN apk update && apk upgrade --no-cache && apk add --no-cache ffmpeg tzdata && rm -rf /var/cache/apk/*
 
 # Run with an unprivileged account.
 RUN addgroup -g 1001 -S app \
@@ -37,10 +35,8 @@ WORKDIR /app
 
 COPY --from=builder /app/babbel .
 
-COPY migrations/ ./migrations/
-
 # Create required directories
-RUN mkdir -p uploads audio/processed audio/output audio/temp \
+RUN mkdir -p audio/processed audio/output audio/temp \
     && chown -R app:app /app
 
 USER app
