@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -165,19 +167,21 @@ func ApplyListQuery[T any](db *gorm.DB, query *ListQuery, fieldMapping FieldMapp
 		db = next
 	}
 
-	var total int64
-	if err := db.Count(&total).Error; err != nil {
-		return nil, err
-	}
-
-	sortedDB, err := applySorting(db, query.Sort, defaultSort, fieldMapping)
+	// Count and Find change the statement they run on, so each builds on its
+	// own copy of the filtered query.
+	filtered := db.Session(&gorm.Session{})
+	sortedDB, err := applySorting(filtered, query.Sort, defaultSort, fieldMapping)
 	if err != nil {
 		return nil, err
 	}
-	db = applyPagination(sortedDB, query.Limit, query.Offset)
+	page := applyPagination(sortedDB, query.Limit, query.Offset)
 
+	var total int64
 	var data []T
-	if err := db.Find(&data).Error; err != nil {
+	if err := concurrently(db,
+		func() error { return filtered.Count(&total).Error },
+		func() error { return page.Find(&data).Error },
+	); err != nil {
 		return nil, err
 	}
 
@@ -187,6 +191,47 @@ func ApplyListQuery[T any](db *gorm.DB, query *ListQuery, fieldMapping FieldMapp
 		Limit:  query.Limit,
 		Offset: query.Offset,
 	}, nil
+}
+
+// concurrently runs independent queries on separate pool connections and
+// returns the first error in argument order. A transaction has only one
+// connection, so on a transaction db the queries run in turn. A panic resumes
+// on the caller's goroutine once all queries finish, so the caller's recovery
+// still handles it instead of the process crashing.
+func concurrently(db *gorm.DB, queries ...func() error) error {
+	errs := make([]error, len(queries))
+	if _, inTx := db.Statement.ConnPool.(gorm.TxCommitter); inTx {
+		for i, query := range queries {
+			if errs[i] = query(); errs[i] != nil {
+				return errs[i]
+			}
+		}
+		return nil
+	}
+	panics := make([]error, len(queries))
+	var wg sync.WaitGroup
+	for i, query := range queries {
+		wg.Go(func() {
+			defer func() {
+				if p := recover(); p != nil {
+					panics[i] = fmt.Errorf("query panicked: %v\n%s", p, debug.Stack())
+				}
+			}()
+			errs[i] = query()
+		})
+	}
+	wg.Wait()
+	for _, p := range panics {
+		if p != nil {
+			panic(p)
+		}
+	}
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // dateTimeLayouts are the accepted date-time filter formats. Keep in sync

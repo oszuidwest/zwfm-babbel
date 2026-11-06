@@ -1,5 +1,7 @@
-FROM golang:1.27.3-alpine3.24 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine3.24 AS builder
 
+ARG TARGETOS
+ARG TARGETARCH
 ARG VERSION=dev
 ARG COMMIT=unknown
 ARG BUILD_TIME=unknown
@@ -11,7 +13,7 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-$(go env GOARCH)} go build \
     -trimpath \
     -ldflags="-w -s -X github.com/oszuidwest/zwfm-babbel/pkg/version.Version=${VERSION} -X github.com/oszuidwest/zwfm-babbel/pkg/version.Commit=${COMMIT} -X github.com/oszuidwest/zwfm-babbel/pkg/version.BuildTime=${BUILD_TIME}" \
     -o babbel cmd/babbel/main.go
