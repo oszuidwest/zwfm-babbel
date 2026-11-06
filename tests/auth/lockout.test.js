@@ -1,6 +1,6 @@
 const { createMySQLExecutor, sqlString } = require('../lib/MySQLHelper');
 
-// Matches MaxLoginAttempts in fixedConfig in internal/config/config.go.
+// Matches maxFailedLogins in internal/api/router.go.
 const MAX_LOGIN_ATTEMPTS = 5;
 
 const mysql = createMySQLExecutor();
