@@ -46,14 +46,13 @@ describe('OpenAPI Contract', () => {
       // The default test environment has no OIDC provider, so starting OAuth
       // returns the documented not-found response instead of redirecting.
       rawScenario('GET', '/api/v1/auth/oauth', () => `${global.api.apiUrl}/auth/oauth`, { maxRedirects: 0 }, 404),
-      // The test environment has no frontend URL for callback redirects; this
-      // deliberately exercises the documented configuration-error response.
+      // Disabled OAuth callbacks return the same not-found response as starts.
       rawScenario(
         'GET',
         '/api/v1/auth/oauth/callback',
         () => `${global.api.apiUrl}/auth/oauth/callback?state=contract&code=contract`,
         { maxRedirects: 0 },
-        500
+        404
       ),
       apiScenario('GET', '/api/v1/sessions/current', '/sessions/current'),
       sparseListScenario('GET', '/api/v1/audit-events', '/audit-events', ['id', 'action']),
