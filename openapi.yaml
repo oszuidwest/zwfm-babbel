@@ -4229,19 +4229,22 @@ components:
             category: "breaking"
             source: "AP"
         external_id:
-          type: string
+          type: [string, 'null']
           maxLength: 100
           pattern: '\S'
           description: |
             ID of the story in the system that sent it. Compared byte for byte. It cannot change
             afterwards. An ID that any story already has, also a soft-deleted one, fails with 409
-            (`story.duplicate`). The limit counts bytes in the database, so an ID within `maxLength`
-            that is longer than 100 bytes also fails with 422.
+            (`story.duplicate`). The limit counts bytes, so an ID within `maxLength` that is longer
+            than 100 bytes also fails with 422. Null counts as absent.
         external_url:
-          type: string
+          type: [string, 'null']
           maxLength: 500
           pattern: '^[hH][tT][tT][pP][sS]?://'
-          description: Link to the story in the system that sent it, http or https. It cannot change afterwards.
+          description: |
+            Link to the story in the system that sent it, http or https. It cannot change afterwards.
+            The limit counts bytes, so a link within `maxLength` that is longer than 500 bytes also
+            fails with 422. Null counts as absent.
 
     StoryUpdate:
       type: object
