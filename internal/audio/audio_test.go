@@ -384,6 +384,9 @@ func TestService_ConvertRejectsUndecodableInput(t *testing.T) {
 		}
 		inputs = append(inputs, path)
 	}
+	corrupt := filepath.Join(tempDir, "corrupt.aac")
+	writeCorruptAAC(t, ffmpegPath, corrupt)
+	inputs = append(inputs, corrupt)
 	for _, ext := range []string{".aac", ".flac"} {
 		path := filepath.Join(tempDir, "random"+ext)
 		if err := os.WriteFile(path, garbage, 0o600); err != nil {
@@ -399,11 +402,36 @@ func TestService_ConvertRejectsUndecodableInput(t *testing.T) {
 				if err := convert(t.Context(), input, outputPath); !errors.Is(err, ErrUndecodable) {
 					t.Fatalf("error = %v, want ErrUndecodable", err)
 				}
+				if input == corrupt {
+					return // FFmpeg fails mid-conversion; callers remove the partial file.
+				}
 				if _, err := os.Stat(outputPath); !errors.Is(err, os.ErrNotExist) {
 					t.Fatalf("output file stat error = %v, want no file", err)
 				}
 			})
 		}
+	}
+}
+
+// writeCorruptAAC writes ADTS AAC whose first frame decodes, so the probe
+// accepts it. Every later frame starts with a channel pair element, which a
+// mono stream cannot decode.
+func writeCorruptAAC(t *testing.T, ffmpegPath, path string) {
+	t.Helper()
+	runFFmpeg(t, ffmpegPath, "-f", "lavfi", "-i", "sine=frequency=1000:duration=1", "-c:a", "aac", "-y", path)
+	data, err := os.ReadFile(path) // #nosec G304 - path is test-generated
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, frame := 0, 0; i+7 < len(data); frame++ {
+		if frame > 0 {
+			data[i+7] = 0x20
+		}
+		i += int(data[i+3]&3)<<11 | int(data[i+4])<<3 | int(data[i+5])>>5
+	}
+	// #nosec G703 - path is test-generated
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
