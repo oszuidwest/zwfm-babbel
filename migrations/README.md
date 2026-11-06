@@ -72,7 +72,9 @@ before changing anything, with an unknown column error that names this file:
 It copies `metadata.wordpress_id` to `external_id` and keeps `updated_at`. When
 stories share a post, only the one with the highest `id` gets the ID, because the
 index is unique; the others keep NULL. List those stories first and check that
-the one with the highest `id` is the one to keep:
+the one with the highest `id` is the one to keep. A story created after this
+check can still become the highest `id`, so run the migration right after it, or
+pause story writes if that matters:
 
     SELECT MIN(JSON_VALUE(metadata, '$.wordpress_id')) AS post, GROUP_CONCAT(id ORDER BY id) AS stories,
            GROUP_CONCAT(deleted_at IS NOT NULL ORDER BY id) AS deleted
@@ -84,4 +86,5 @@ Stories from a client that still sends only `metadata.wordpress_id` get no
 for those stories, with `@wordpress_url` set as above: without it they get
 the ID but no link, and a rerun does not add it. A post whose ID a story already
 has is skipped: that story keeps the ID and its link, also when it is older or
-soft-deleted.
+soft-deleted. A story that already has another ID keeps it, and the highest `id`
+without an ID gets the post's ID.
