@@ -523,6 +523,17 @@ describe('Stories', () => {
       expect(getResponse.data.audio_file).not.toBe('');
     });
 
+    test('when the story has no voice, then returns 409 and stores no audio', async () => {
+      const story = await global.helpers.createStory(global.resources, { title: global.helpers.uniqueName('AudioNoVoice') });
+
+      const response = await global.api.uploadFile(`/stories/${story.id}/audio`, {}, testAudio, 'audio');
+
+      expect(response.status).toBe(409);
+      expect(response.data.code).toBe('story.no_voice');
+      const after = await global.api.apiCall('GET', `/stories/${story.id}`);
+      expect(after.data.audio_file).toBe('');
+    });
+
     test('when uploading a file that is not audio, then returns 422 undecodable_audio', async () => {
       const notAudio = `${global.helpers.uniqueName('/tmp/test_story_not_audio')}.mp3`;
       try {

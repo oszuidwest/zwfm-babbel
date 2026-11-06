@@ -283,6 +283,20 @@ func (s *StoryService) GetByIDForWrite(ctx context.Context, id int64) (*models.S
 	return story, nil
 }
 
+// CheckAudioUpload reports whether story id can take an uploaded file: it must
+// be writable and have a voice, so its audio is attributed to a voice.
+func (s *StoryService) CheckAudioUpload(ctx context.Context, id int64) error {
+	story, err := s.GetByIDForWrite(ctx, id)
+	if err != nil {
+		return err
+	}
+	if story.VoiceID == nil {
+		return apperrors.Conflict("story.no_voice", "Story has no voice assigned for audio upload",
+			"Assign a voice to the story first")
+	}
+	return nil
+}
+
 // Exists reports whether a story with the given ID exists.
 func (s *StoryService) Exists(ctx context.Context, id int64) (bool, error) {
 	exists, err := s.storyRepo.Exists(ctx, id)

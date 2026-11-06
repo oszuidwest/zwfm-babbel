@@ -184,14 +184,14 @@ func validRangeSpec(value string, size int64) (overlaps, ok bool) {
 }
 
 // UploadStoryAudio validates and converts an uploaded story file.
-// The story must exist before temporary upload data is accepted.
+// The story must exist and have a voice before temporary upload data is accepted.
 func (h *Handlers) UploadStoryAudio(c *gin.Context) {
 	id, ok := utils.IDParam(c)
 	if !ok {
 		return
 	}
 
-	if _, err := h.storySvc.GetByIDForWrite(c.Request.Context(), id); err != nil {
+	if err := h.storySvc.CheckAudioUpload(c.Request.Context(), id); err != nil {
 		handleServiceError(c, err, "Story")
 		return
 	}
