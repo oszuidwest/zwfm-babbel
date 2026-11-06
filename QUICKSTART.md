@@ -131,7 +131,7 @@ curl -b cookies.txt -X POST http://localhost:8080/api/v1/stories \
 
 # Upload audio separately (replace 1 with the story ID from previous response)
 curl -b cookies.txt -X POST http://localhost:8080/api/v1/stories/1/audio \
-  -F "file=@test.wav"
+  -F "audio=@test.wav"
 ```
 
 ## Step 8: Generate Bulletin
@@ -279,7 +279,7 @@ curl -b cookies.txt -X POST http://localhost:8080/api/v1/station-voices \
 
 # Upload jingle audio separately (replace 1 with the station-voice ID from previous response)
 curl -b cookies.txt -X POST http://localhost:8080/api/v1/station-voices/1/audio \
-  -F "file=@station_jingle.wav"
+  -F "jingle=@station_jingle.wav"
 ```
 
 ### User Management
