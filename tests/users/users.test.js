@@ -24,7 +24,7 @@ describe('Users', () => {
       const response = await global.api.apiCall('POST', '/users', {
         ...usersSchema.createValidData(),
         username: `querysort${letter}${index < 3 ? 'querykeep' : 'querydrop'}${stamp}`,
-        full_name: `Query Sort ${fullName}`,
+        full_name: `Query Sort ${fullName} Fullname`,
         role
       });
       expect(response.status).toBe(201);

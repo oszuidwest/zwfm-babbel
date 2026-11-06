@@ -29,7 +29,6 @@ type pronunciationRuleLister interface {
 type pronunciationRuleRepo interface {
 	pronunciationRuleLister
 	ReplaceAll(ctx context.Context, rules []models.PronunciationRule, actorUserID *int64) error
-	MaxUpdatedAt(ctx context.Context) (*time.Time, error)
 }
 
 // PronunciationRulesService manages the global inline-IPA rule table.
@@ -76,13 +75,9 @@ func (s *PronunciationRulesService) Get(ctx context.Context) (*PronunciationRule
 	if err != nil {
 		return nil, translatePronunciationRulesRepoError(apperrors.OpQuery, err)
 	}
-	updatedAt, err := s.repo.MaxUpdatedAt(ctx)
-	if err != nil {
-		return nil, translatePronunciationRulesRepoError(apperrors.OpQuery, err)
-	}
 	return &PronunciationRulesResponse{
 		Rules:     rules,
-		UpdatedAt: updatedAt,
+		UpdatedAt: pronunciationRulesUpdatedAt(rules),
 	}, nil
 }
 
@@ -98,7 +93,6 @@ func (s *PronunciationRulesService) Update(
 	sortPronunciationRules(rules)
 
 	var persistedRules []models.PronunciationRule
-	var updatedAt *time.Time
 	if err := s.txManager.WithTransaction(ctx, func(ctx context.Context) error {
 		if err := s.repo.ReplaceAll(ctx, rules, req.ActorUserID); err != nil {
 			return err
@@ -108,10 +102,6 @@ func (s *PronunciationRulesService) Update(
 		if err != nil {
 			return fmt.Errorf("list_after_replace: %w", err)
 		}
-		updatedAt, err = s.repo.MaxUpdatedAt(ctx)
-		if err != nil {
-			return fmt.Errorf("max_updated_at: %w", err)
-		}
 		return nil
 	}); err != nil {
 		return nil, translatePronunciationRulesRepoError(apperrors.OpUpdate, err)
@@ -120,8 +110,20 @@ func (s *PronunciationRulesService) Update(
 	logPronunciationRulesAudit(req, len(persistedRules))
 	return &PronunciationRulesResponse{
 		Rules:     persistedRules,
-		UpdatedAt: updatedAt,
+		UpdatedAt: pronunciationRulesUpdatedAt(persistedRules),
 	}, nil
+}
+
+// pronunciationRulesUpdatedAt returns the latest update of the full rule set,
+// or nil when there are no rules.
+func pronunciationRulesUpdatedAt(rules []models.PronunciationRule) *time.Time {
+	if len(rules) == 0 {
+		return nil
+	}
+	updatedAt := slices.MaxFunc(rules, func(a, b models.PronunciationRule) int {
+		return a.UpdatedAt.Compare(b.UpdatedAt)
+	}).UpdatedAt
+	return &updatedAt
 }
 
 func materializePronunciationRules(req *UpdatePronunciationRulesRequest) ([]models.PronunciationRule, error) {

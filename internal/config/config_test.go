@@ -611,6 +611,39 @@ func assertErrorContains(t *testing.T, err error, parts ...string) {
 	}
 }
 
+func TestLoadDefaultsIdleConnsToMaxOpenConns(t *testing.T) {
+	const maxOpen, maxIdle = "BABBEL_DB_MAX_OPEN_CONNS", "BABBEL_DB_MAX_IDLE_CONNS"
+	for name, test := range map[string]struct {
+		env                map[string]string
+		wantOpen, wantIdle int
+	}{
+		"defaults":          {wantOpen: 100, wantIdle: 100},
+		"follows max open":  {env: map[string]string{maxOpen: "25"}, wantOpen: 25, wantIdle: 25},
+		"empty is unset":    {env: map[string]string{maxOpen: "25", maxIdle: ""}, wantOpen: 25, wantIdle: 25},
+		"explicit":          {env: map[string]string{maxOpen: "25", maxIdle: "5"}, wantOpen: 25, wantIdle: 5},
+		"explicit disabled": {env: map[string]string{maxOpen: "25", maxIdle: "0"}, wantOpen: 25, wantIdle: 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, key := range []string{maxOpen, maxIdle} {
+				t.Setenv(key, "") // Restores the variable after the test.
+				if err := os.Unsetenv(key); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for key, value := range test.env {
+				t.Setenv(key, value)
+			}
+			cfg, err := Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if d := cfg.Database; d.MaxOpenConns != test.wantOpen || d.MaxIdleConns != test.wantIdle {
+				t.Fatalf("open/idle = %d/%d, want %d/%d", d.MaxOpenConns, d.MaxIdleConns, test.wantOpen, test.wantIdle)
+			}
+		})
+	}
+}
+
 func TestDatabaseTimeoutDefaults(t *testing.T) {
 	t.Parallel()
 	cfg, err := env.ParseAsWithOptions[Config](env.Options{Prefix: "BABBEL_", Environment: map[string]string{}})
