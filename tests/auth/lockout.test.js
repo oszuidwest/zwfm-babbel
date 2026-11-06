@@ -1,6 +1,6 @@
 const { createMySQLExecutor, sqlString } = require('../lib/MySQLHelper');
 
-// Matches BABBEL_AUTH_MAX_LOGIN_ATTEMPTS default in internal/config/config.go.
+// Matches MaxLoginAttempts in fixedConfig in internal/config/config.go.
 const MAX_LOGIN_ATTEMPTS = 5;
 
 const mysql = createMySQLExecutor();

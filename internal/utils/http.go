@@ -245,7 +245,7 @@ type StationVoiceUpdateRequest struct {
 }
 
 // UserCreateRequest is the JSON body for creating local user accounts. The
-// service applies the configured password policy.
+// service applies the password policy.
 type UserCreateRequest struct {
 	Username string             `json:"username" binding:"required,min=3,max=100,alphanum"`
 	FullName string             `json:"full_name" binding:"required,notblank,max=255"`

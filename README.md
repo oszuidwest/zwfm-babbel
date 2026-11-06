@@ -18,7 +18,7 @@ Babbel connects to newsroom workflows and radio automation systems. It supplies 
 - **Direct audio URLs** - Radio automation systems can get the bulletins directly
 
 ### Technical Features
-- **Authentication** - Local accounts with bcrypt, or OIDC/OAuth2 (Microsoft Entra ID, Google, Okta)
+- **Authentication** - Local accounts with bcrypt, or OIDC/OAuth2 (Microsoft Entra ID, Google, Okta). New local passwords need at least 8 characters with an uppercase letter, a lowercase letter and a number, and 5 failed logins lock an account for 15 minutes
 - **Authorization** - Role-based access control with Casbin (admin, editor, and viewer roles)
 - **Audio processing** - Audio mixing with FFmpeg and configurable mix points
 - **Loudness normalization** - Audio levels that agree with EBU R128 s2 (-16 LUFS)

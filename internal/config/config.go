@@ -131,29 +131,16 @@ type DatabaseConfig struct {
 // MaxPasswordBytes is the longest password bcrypt accepts.
 const MaxPasswordBytes = 72
 
-// LocalAuthConfig defines password policy and lockout rules for local authentication.
-type LocalAuthConfig struct {
-	// MinPasswordLength must be between 8 and 72, the bcrypt byte limit.
-	MinPasswordLength      int  `env:"MIN_PASSWORD_LENGTH" envDefault:"8"`
-	RequireUppercase       bool `env:"REQUIRE_UPPERCASE" envDefault:"true"`
-	RequireLowercase       bool `env:"REQUIRE_LOWERCASE" envDefault:"true"`
-	RequireNumber          bool `env:"REQUIRE_NUMBER" envDefault:"true"`
-	RequireSpecialChar     bool `env:"REQUIRE_SPECIAL" envDefault:"false"`
-	MaxLoginAttempts       int  `env:"MAX_LOGIN_ATTEMPTS" envDefault:"5"`
-	LockoutDurationMinutes int  `env:"LOCKOUT_MINUTES" envDefault:"15"`
-}
-
 // AuthConfig defines authentication and session settings.
 type AuthConfig struct {
 	Method       AuthMethod `env:"AUTH_METHOD" envDefault:"local"`
 	CookieDomain string     `env:"COOKIE_DOMAIN"`
 	// CookieSameSite accepts strict, lax, or none.
-	CookieSameSite   CookieSameSite  `env:"COOKIE_SAMESITE" envDefault:"lax"`
-	OIDCProviderURL  string          `env:"OIDC_PROVIDER_URL"`
-	OIDCClientID     string          `env:"OIDC_CLIENT_ID"`
-	OIDCClientSecret string          `env:"OIDC_CLIENT_SECRET"`
-	OIDCRedirectURL  string          `env:"OIDC_REDIRECT_URL"`
-	Local            LocalAuthConfig `envPrefix:"AUTH_"`
+	CookieSameSite   CookieSameSite `env:"COOKIE_SAMESITE" envDefault:"lax"`
+	OIDCProviderURL  string         `env:"OIDC_PROVIDER_URL"`
+	OIDCClientID     string         `env:"OIDC_CLIENT_ID"`
+	OIDCClientSecret string         `env:"OIDC_CLIENT_SECRET"`
+	OIDCRedirectURL  string         `env:"OIDC_REDIRECT_URL"`
 }
 
 // TTSConfig defines text-to-speech integration settings for ElevenLabs.
@@ -365,18 +352,8 @@ func (c *Config) validateAuth() error {
 		return fmt.Errorf("invalid BABBEL_COOKIE_SAMESITE: %s (must be strict, lax, or none)", c.Auth.CookieSameSite)
 	}
 
-	if c.Auth.Local.MinPasswordLength < 8 || c.Auth.Local.MinPasswordLength > MaxPasswordBytes {
-		return fmt.Errorf("BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and %d", MaxPasswordBytes)
-	}
-
 	if c.Auth.Method.SupportsOIDC() {
 		if err := c.validateOIDC(); err != nil {
-			return err
-		}
-	}
-
-	if c.Auth.Method.SupportsLocal() {
-		if err := c.validateLocalAuth(); err != nil {
 			return err
 		}
 	}
@@ -409,16 +386,6 @@ func (c *Config) validateAudioTools() error {
 	}
 	if err := validateAudioTool("FFprobe", c.Audio.FFprobePath); err != nil {
 		return err
-	}
-	return nil
-}
-
-func (c *Config) validateLocalAuth() error {
-	if c.Auth.Local.MaxLoginAttempts < 1 {
-		return fmt.Errorf("BABBEL_AUTH_MAX_LOGIN_ATTEMPTS must be >= 1 (got %d)", c.Auth.Local.MaxLoginAttempts)
-	}
-	if c.Auth.Local.LockoutDurationMinutes < 1 {
-		return fmt.Errorf("BABBEL_AUTH_LOCKOUT_MINUTES must be >= 1 (got %d)", c.Auth.Local.LockoutDurationMinutes)
 	}
 	return nil
 }
