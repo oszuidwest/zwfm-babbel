@@ -180,7 +180,6 @@ func buildAuthConfig(cfg *config.Config) *auth.Config {
 			CookieSecure:   cfg.Environment.IsProduction(),
 			CookieHTTPOnly: true,
 			CookieSameSite: string(cfg.Auth.CookieSameSite),
-			SecretKey:      cfg.Auth.SessionSecret,
 		},
 		AllowedOrigins: cfg.Server.AllowedOrigins,
 	}

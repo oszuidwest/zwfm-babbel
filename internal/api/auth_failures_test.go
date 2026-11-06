@@ -32,7 +32,7 @@ func TestGetCurrentUserLogsPermissionCause(t *testing.T) {
 }
 
 func TestOAuthCallbackWhenOAuthDisabled(t *testing.T) {
-	s, err := auth.NewService(&auth.Config{Method: config.AuthMethodLocal, Session: auth.SessionConfig{CookieName: "session", SecretKey: strings.Repeat("k", 32)}}, nil, nil)
+	s, err := auth.NewService(&auth.Config{Method: config.AuthMethodLocal, Session: auth.SessionConfig{CookieName: "session"}}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

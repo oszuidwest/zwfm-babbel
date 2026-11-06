@@ -3,7 +3,6 @@ package auth
 import (
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -19,7 +18,7 @@ import (
 // and returns the cookies it sets; loggedIn reports whether cookies hold a login.
 func sessionFixture(t *testing.T) (do func(path string, cookies []*http.Cookie) []*http.Cookie, loggedIn func(cookies []*http.Cookie) bool) {
 	t.Helper()
-	cfg := &Config{Method: config.AuthMethodOIDC, Session: SessionConfig{CookieName: "session", MaxAge: 86400, SecretKey: strings.Repeat("k", 32)}}
+	cfg := &Config{Method: config.AuthMethodOIDC, Session: SessionConfig{CookieName: "session", MaxAge: 86400}}
 	s := &Service{config: cfg, store: newSessionStore(cfg.Session), oauth: &oauth2.Config{}}
 	router := gin.New()
 	router.Use(s.SessionMiddleware())
@@ -60,6 +59,27 @@ func TestSessionCookieExpiresAtMaxAge(t *testing.T) {
 			t.Fatal("session accepted after MaxAge")
 		}
 	})
+}
+
+// A restart means a new store with a new key. The old cookie must then read as
+// anonymous, and the client must be able to log in again.
+func TestSessionCookieFromBeforeRestart(t *testing.T) {
+	login, _ := sessionFixture(t)
+	stale := login("/login", nil)
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
+	req.AddCookie(stale[0])
+	if _, err := newSessionStore(SessionConfig{}).New(req, "session"); err == nil {
+		t.Fatal("new store accepted the old signature, want a new key per store")
+	}
+
+	do, loggedIn := sessionFixture(t)
+	if loggedIn(stale) {
+		t.Fatal("cookie from before the restart is logged in")
+	}
+	if !loggedIn(do("/login", stale)) {
+		t.Fatal("login with a stale cookie did not save a new session")
+	}
 }
 
 // Starting an OAuth flow writes a fresh cookie, which must not extend a login.

@@ -65,7 +65,4 @@ type SessionConfig struct {
 	CookieHTTPOnly bool
 	// CookieSameSite controls the SameSite cookie attribute.
 	CookieSameSite string
-
-	// SecretKey encrypts or signs session data depending on the store.
-	SecretKey string
 }
