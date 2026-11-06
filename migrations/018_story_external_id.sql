@@ -1,5 +1,5 @@
 -- Adds the external ID and link to stories and fills them from metadata.wordpress_id.
--- Set @wordpress_url first, see README.md. Of stories sharing a post, the newest gets the ID, unless a story already has it.
+-- Set @wordpress_url first, see README.md. Of stories sharing a post, the one with the highest id gets external_id, unless a story already has it.
 SET @url_check = IF(COALESCE(@wordpress_url, '') REGEXP '^https?://.*[^/]$', 'DO 0',
     'DO `Set @wordpress_url, see migrations/README.md`');
 PREPARE url_check FROM @url_check;  -- A bad value fails here on the unknown column, so no EXECUTE.

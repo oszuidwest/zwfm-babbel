@@ -70,9 +70,9 @@ before changing anything, with an unknown column error that names this file:
     mysql --init-command="SET @wordpress_url='https://example.org'" ... < 018_story_external_id.sql
 
 It copies `metadata.wordpress_id` to `external_id` and keeps `updated_at`. When
-stories share a post, only the newest gets the ID, because the index is unique;
-the others keep NULL. List those stories first and check that the newest is the
-one to keep:
+stories share a post, only the one with the highest `id` gets the ID, because the
+index is unique; the others keep NULL. List those stories first and check that
+the one with the highest `id` is the one to keep:
 
     SELECT MIN(JSON_VALUE(metadata, '$.wordpress_id')) AS post, GROUP_CONCAT(id ORDER BY id) AS stories,
            GROUP_CONCAT(deleted_at IS NOT NULL ORDER BY id) AS deleted
