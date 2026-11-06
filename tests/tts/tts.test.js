@@ -34,13 +34,12 @@ describe('TTS', () => {
 
   const uploadTestAudio = async (storyId) => {
     const audioPath = `/tmp/tts_test_audio_${Date.now()}.wav`;
-    if (!global.helpers.createTestAudioFile(audioPath, 1)) return false;
-
     try {
+      global.helpers.createTestAudioFile(audioPath, 1);
       const response = await global.api.uploadFile(
         `/stories/${storyId}/audio`, {}, audioPath, 'audio'
       );
-      return response.status === 201;
+      global.helpers.fixtureResponse(response, 'POST', `/stories/${storyId}/audio`, 201, false);
     } finally {
       global.helpers.cleanupTempFile(audioPath);
     }
@@ -94,14 +93,11 @@ describe('TTS', () => {
     });
 
     test('when story already has audio without force, then returns 409', async () => {
-      expect(global.helpers.isFFmpegAvailable()).toBe(true);
-
       const voiceId = await createVoice('TTS Audio Exists Voice', 'dummy-el-voice-id');
 
       const storyId = await createStory('TTS Audio Exists Story', 'Some text content for TTS', voiceId);
 
-      const uploaded = await uploadTestAudio(storyId);
-      expect(uploaded).toBe(true);
+      await uploadTestAudio(storyId);
 
       const response = await global.api.apiCall('POST', `/stories/${storyId}/tts`);
 
@@ -114,8 +110,6 @@ describe('TTS', () => {
   (TTS_ENABLED && TTS_REAL_API && ELEVENLABS_VOICE_ID ? describe : describe.skip)(
     'Real API (requires TTS + BABBEL_TEST_TTS_REAL_API=true)', () => {
     test('when force overwrite with real API, then returns 201', async () => {
-      expect(global.helpers.isFFmpegAvailable()).toBe(true);
-
       const voiceId = await createVoice('TTS Force Voice', ELEVENLABS_VOICE_ID);
 
       const storyId = await createStory(
@@ -124,8 +118,7 @@ describe('TTS', () => {
         voiceId
       );
 
-      const uploaded = await uploadTestAudio(storyId);
-      expect(uploaded).toBe(true);
+      await uploadTestAudio(storyId);
 
       const response = await global.api.apiCall('POST', `/stories/${storyId}/tts?force=true`);
 

@@ -140,7 +140,7 @@ describe('Automation', () => {
       const day = String(today.getDate()).padStart(2, '0');
       const todayStr = `${year}-${month}-${day}`;
 
-      await global.helpers.requireStoriesWithReadyAudio(global.resources, voiceId, [{
+      await global.helpers.createStoriesWithAudio(global.resources, voiceId, [{
         title: `Timezone_Test_Story_${Date.now()}`,
         text: 'Story for testing single-day DATE comparison fix.',
         start_date: todayStr,
