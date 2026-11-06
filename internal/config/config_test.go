@@ -108,80 +108,6 @@ func TestValidateDatabasePoolConfig(t *testing.T) {
 	}
 }
 
-func TestValidateTTSConfig(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name    string
-		mutate  func(*Config)
-		wantErr string
-	}{
-		{
-			name: "request timeout is zero",
-			mutate: func(cfg *Config) {
-				cfg.TTS.RequestTimeout = 0
-			},
-			wantErr: "BABBEL_ELEVENLABS_TIMEOUT must be > 0",
-		},
-		{
-			name: "request timeout is negative",
-			mutate: func(cfg *Config) {
-				cfg.TTS.RequestTimeout = -time.Second
-			},
-			wantErr: "BABBEL_ELEVENLABS_TIMEOUT must be > 0",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			cfg := validTestConfig(t)
-			tt.mutate(cfg)
-
-			err := cfg.Validate()
-			assertErrorContains(t, err, tt.wantErr)
-		})
-	}
-}
-
-func TestValidateBulletinJobConfig(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name    string
-		mutate  func(*Config)
-		wantErr string
-	}{
-		{
-			name: "generation timeout is zero",
-			mutate: func(cfg *Config) {
-				cfg.BulletinJobs.GenerationTimeout = 0
-			},
-			wantErr: "BABBEL_BULLETIN_JOBS_GENERATION_TIMEOUT must be > 0",
-		},
-		{
-			name: "generation timeout is negative",
-			mutate: func(cfg *Config) {
-				cfg.BulletinJobs.GenerationTimeout = -time.Second
-			},
-			wantErr: "BABBEL_BULLETIN_JOBS_GENERATION_TIMEOUT must be > 0",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			cfg := validTestConfig(t)
-			tt.mutate(cfg)
-
-			err := cfg.Validate()
-			assertErrorContains(t, err, tt.wantErr)
-		})
-	}
-}
-
 func TestLoadFixedAudioSettings(t *testing.T) {
 	t.Setenv("BABBEL_BULLETIN_RETENTION", "24h")
 
@@ -531,12 +457,6 @@ func validConfigWithAudioTools(ffmpegPath, ffprobePath string) *Config {
 			FFprobePath:       ffprobePath,
 			BulletinRetention: 168 * time.Hour,
 		},
-		TTS: TTSConfig{
-			RequestTimeout: 60 * time.Second,
-		},
-		BulletinJobs: BulletinJobConfig{
-			GenerationTimeout: 120 * time.Second,
-		},
 		Environment: EnvDevelopment,
 	}
 }
@@ -688,6 +608,17 @@ func TestLoadHasNoUnsafeDefaults(t *testing.T) {
 	}
 	if cfg.Database.Password != "" || cfg.Auth.OIDCRedirectURL != "" {
 		t.Errorf("password %q and redirect URL %q must have no default", cfg.Database.Password, cfg.Auth.OIDCRedirectURL)
+	}
+}
+
+func TestLoadFixedTimeouts(t *testing.T) {
+	t.Parallel()
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, j, tts := cfg.Automation.GenerationTimeout, cfg.BulletinJobs.GenerationTimeout, cfg.TTS.RequestTimeout; a != 120*time.Second || j != 120*time.Second || tts != 60*time.Second {
+		t.Fatalf("automation/jobs/tts = %v/%v/%v, want 120s/120s/60s", a, j, tts)
 	}
 }
 

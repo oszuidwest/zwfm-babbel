@@ -308,7 +308,7 @@ paths:
 
         **Concurrency**: Only one bulletin can be generated per station at a time.
         Concurrent requests for the same station will queue for up to
-        `BABBEL_AUTOMATION_TIMEOUT` (default 120s), then return 504.
+        120s, then return 504.
 
         **Compatible systems**: mAirList, RadioDJ, PlayoutONE, StationPlaylist, and any
         system that supports HTTP audio fetching.
@@ -1519,8 +1519,8 @@ paths:
         story audio is replaced.
 
         TTS request options are read from the global settings row exposed at
-        `GET/PATCH /api/v1/settings/tts`. The API key and timeout remain environment
-        configuration; Babbel always sends `eleven_v4`. Stability, text
+        `GET/PATCH /api/v1/settings/tts`. The API key remains environment configuration,
+        and the request timeout is fixed at 60s. Babbel always sends `eleven_v4`. Stability, text
         normalization, seed, and the audio-tag style prefix are database-backed
         settings. Local pronunciation rules are injected as inline IPA before
         the TTS request is sent.

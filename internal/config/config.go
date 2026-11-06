@@ -17,6 +17,13 @@ import (
 
 const audioToolVersionCheckTimeout = 5 * time.Second
 
+const (
+	// generationTimeout bounds one bulletin generation, for automation
+	// requests and for asynchronous jobs.
+	generationTimeout = 120 * time.Second
+	ttsRequestTimeout = 60 * time.Second
+)
+
 // Config is the environment-backed runtime configuration.
 type Config struct {
 	Server        ServerConfig
@@ -24,7 +31,7 @@ type Config struct {
 	Auth          AuthConfig
 	Audio         AudioConfig
 	Automation    AutomationConfig
-	BulletinJobs  BulletinJobConfig  `envPrefix:"BULLETIN_JOBS_"`
+	BulletinJobs  BulletinJobConfig
 	TTS           TTSConfig          `envPrefix:"ELEVENLABS_"`
 	Notifications NotificationConfig `envPrefix:"NOTIFICATIONS_"`
 	// LogLevel values of 5 or higher enable debug logging; lower values log at info.
@@ -91,14 +98,14 @@ func (g *GraphConfig) IsComplete() bool {
 // AutomationConfig defines settings for radio automation system integration.
 type AutomationConfig struct {
 	// Key authenticates automation system requests. Empty disables the endpoint.
-	Key               string        `env:"AUTOMATION_KEY"`
-	GenerationTimeout time.Duration `env:"AUTOMATION_TIMEOUT" envDefault:"120s"`
+	Key               string `env:"AUTOMATION_KEY"`
+	GenerationTimeout time.Duration
 }
 
 // BulletinJobConfig defines asynchronous bulletin worker settings.
 type BulletinJobConfig struct {
 	// GenerationTimeout applies to one generation attempt.
-	GenerationTimeout time.Duration `env:"GENERATION_TIMEOUT" envDefault:"120s"`
+	GenerationTimeout time.Duration
 }
 
 // ServerConfig defines HTTP server and CORS settings.
@@ -153,8 +160,8 @@ type AuthConfig struct {
 // TTSConfig defines text-to-speech integration settings for ElevenLabs.
 type TTSConfig struct {
 	// APIKey authenticates requests to the ElevenLabs API. Empty disables TTS.
-	APIKey         string        `env:"API_KEY"`
-	RequestTimeout time.Duration `env:"TIMEOUT" envDefault:"60s"`
+	APIKey         string `env:"API_KEY"`
+	RequestTimeout time.Duration
 }
 
 // AudioConfig defines audio processing and file storage settings.
@@ -195,6 +202,9 @@ func fixedConfig() Config {
 			OutputPath:    "./audio/output",
 			TempPath:      "./audio/temp",
 		},
+		Automation:   AutomationConfig{GenerationTimeout: generationTimeout},
+		BulletinJobs: BulletinJobConfig{GenerationTimeout: generationTimeout},
+		TTS:          TTSConfig{RequestTimeout: ttsRequestTimeout},
 	}
 }
 
@@ -355,12 +365,6 @@ func (c *Config) validateCore() error {
 
 	if err := c.validateDatabasePool(); err != nil {
 		return err
-	}
-	if c.TTS.RequestTimeout <= 0 {
-		return fmt.Errorf("BABBEL_ELEVENLABS_TIMEOUT must be > 0 (got %s)", c.TTS.RequestTimeout)
-	}
-	if c.BulletinJobs.GenerationTimeout <= 0 {
-		return fmt.Errorf("BABBEL_BULLETIN_JOBS_GENERATION_TIMEOUT must be > 0 (got %s)", c.BulletinJobs.GenerationTimeout)
 	}
 	// A zero retention would purge all bulletin audio at the next cleanup,
 	// except the newest bulletin per station.

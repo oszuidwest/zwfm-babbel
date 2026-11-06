@@ -199,10 +199,6 @@ Babbel finds `ffmpeg` and `ffprobe` through PATH and tests them at startup with 
 
 Run exactly one Babbel instance per database. Startup recovery requeues every `running` job, so a second instance would requeue jobs the first instance is still processing. Sessions also live in the memory of one instance, so a second instance would reject them.
 
-| Env var | Default | Description |
-|---|---|---|
-| `BABBEL_BULLETIN_JOBS_GENERATION_TIMEOUT` | `120s` | Maximum duration of one asynchronous bulletin-generation attempt. |
-
 ### Text-to-speech
 
 To enable TTS, set an ElevenLabs API key. The credentials stay in environment variables. Babbel always uses the ElevenLabs `eleven_v4` model. The voice options are in the `tts_settings` singleton row. The API gives access to these options.
@@ -210,7 +206,6 @@ To enable TTS, set an ElevenLabs API key. The credentials stay in environment va
 | Env var | Default | Description |
 |---|---|---|
 | `BABBEL_ELEVENLABS_API_KEY` | unset | Enables TTS. If not set, `POST /api/v1/stories/{id}/tts` returns 501. |
-| `BABBEL_ELEVENLABS_TIMEOUT` | `60s` | The timeout for calls to the ElevenLabs API. |
 
 The initial settings row has stability `0.80`, text normalization `auto`, no seed, and the prefix `[professional][news anchor][engaging]`. Babbel sends only `stability` in `voice_settings`.
 
@@ -220,7 +215,7 @@ Use `GET` and `PUT /api/v1/settings/tts/pronunciations` to control the local IPA
 
 ### HTTP timeouts
 
-The server read timeout is 15s; authenticated audio uploads get 2 minutes to send their body. The write timeout covers the slowest synchronous route plus 2 minutes to stream audio to slow clients: `max(2 x BABBEL_AUTOMATION_TIMEOUT, BABBEL_ELEVENLABS_TIMEOUT) + 2m`, 360s by default. An automation request may wait one generation budget for the station lock (then it returns 504) and spend another generating. Reverse proxies must allow the same durations.
+The server read timeout is 15s; authenticated audio uploads get 2 minutes to send their body. The write timeout is 360s. It covers the slowest synchronous route plus 2 minutes to stream audio to slow clients. An automation request may wait 120s for the station lock (then it returns 504) and spend another 120s generating. Reverse proxies must allow the same durations.
 
 If a bulletin cannot be written completely to the automation client, Babbel logs it and sends a per-station alert. The stories still count as broadcast.
 
