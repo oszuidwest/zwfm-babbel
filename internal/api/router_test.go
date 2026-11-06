@@ -62,6 +62,52 @@ func performCORSRequest(t *testing.T, origin, allowedOrigins string) *httptest.R
 	return recorder
 }
 
+func TestCORSMiddlewareCrossOriginWrites(t *testing.T) {
+	t.Parallel()
+	const allowed = "https://app.example.com"
+
+	tests := []struct {
+		name       string
+		method     string
+		origin     string
+		fetchSite  string
+		wantStatus int
+	}{
+		{name: "other site", method: http.MethodPost, origin: "https://evil.test", fetchSite: "cross-site", wantStatus: 403},
+		{name: "unlisted host on the same site", method: http.MethodPost, origin: "https://evil.example.com", fetchSite: "same-site", wantStatus: 403},
+		{name: "browser without Sec-Fetch-Site", method: http.MethodPost, origin: "https://evil.test", wantStatus: 403},
+		{name: "listed origin on the same site", method: http.MethodPost, origin: allowed, fetchSite: "same-site", wantStatus: 200},
+		{name: "API client without browser headers", method: http.MethodPost, wantStatus: 200},
+		{name: "read from another site", method: http.MethodGet, origin: "https://evil.test", fetchSite: "cross-site", wantStatus: 200},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			gin.SetMode(gin.TestMode)
+			router := gin.New()
+			router.Use(corsMiddleware(&config.Config{
+				Server: config.ServerConfig{AllowedOrigins: allowed + "/"},
+			}))
+			router.Any("/", func(c *gin.Context) {
+				c.String(http.StatusOK, "reached")
+			})
+
+			request := httptest.NewRequestWithContext(t.Context(), tt.method, "/", nil)
+			request.Header.Set("Origin", tt.origin)
+			request.Header.Set("Sec-Fetch-Site", tt.fetchSite)
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, request)
+
+			if recorder.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", recorder.Code, tt.wantStatus)
+			}
+			if reached := strings.Contains(recorder.Body.String(), "reached"); reached != (tt.wantStatus == http.StatusOK) {
+				t.Fatalf("handler reached = %v; body: %s", reached, recorder.Body.String())
+			}
+		})
+	}
+}
+
 // A query string that url.ParseQuery rejects fails with 422 on every route
 // except OPTIONS, before a handler can read it with the malformed pairs
 // dropped. Well-formed query strings, such as OAuth callback, list and

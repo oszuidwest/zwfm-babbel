@@ -184,7 +184,7 @@ Use these environment variables to override the database connection pool default
 | Env var | Default | Description |
 |---|---:|---|
 | `BABBEL_DB_MAX_OPEN_CONNS` | `100` | The maximum number of open database connections. |
-| `BABBEL_DB_MAX_IDLE_CONNS` | `10` | The maximum number of idle database connections in the pool. |
+| `BABBEL_DB_MAX_IDLE_CONNS` | `BABBEL_DB_MAX_OPEN_CONNS` | The maximum number of idle database connections in the pool. |
 | `BABBEL_DB_CONN_MAX_LIFETIME` | `1h` | The maximum lifetime of a database connection that Babbel uses again. |
 
 ### Audio tools

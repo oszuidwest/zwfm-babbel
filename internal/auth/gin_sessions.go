@@ -17,5 +17,8 @@ func newSessionStore(cfg SessionConfig) sessions.Store {
 		HttpOnly: cfg.CookieHTTPOnly,
 		SameSite: config.CookieSameSite(cfg.CookieSameSite).ToHTTP(),
 	})
+	// Options only sets the cookie attributes. The cookie signature stays valid
+	// for 30 days until MaxAge, which the Store interface hides, is called too.
+	store.(interface{ MaxAge(int) }).MaxAge(cfg.MaxAge)
 	return store
 }

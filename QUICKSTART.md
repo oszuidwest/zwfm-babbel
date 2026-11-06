@@ -243,13 +243,10 @@ A newer MySQL version in the compose file upgrades the database files on its fir
 
 ### Using Pre-built Docker Images
 
-The official Docker images are available at GitHub Container Registry:
-- Latest: `ghcr.io/oszuidwest/zwfm-babbel:latest`
-- Specific version: `ghcr.io/oszuidwest/zwfm-babbel:v0.0.1`
+The official Docker image is available at GitHub Container Registry:
+`ghcr.io/oszuidwest/zwfm-babbel:latest`
 
-Images are automatically built for:
-- New releases (tags)
-- Main branch updates
+Images are built for new releases. Version tags have no `v` prefix, for example `0.17.1`.
 
 ## API Usage Examples
 
