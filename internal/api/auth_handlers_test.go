@@ -200,7 +200,6 @@ func newOAuthTestRouter(t *testing.T) (*gin.Engine, *atomic.Bool) {
 			MaxAge:     3600,
 			CookieName: "babbel_session",
 			CookiePath: "/",
-			SecretKey:  strings.Repeat("k", 32),
 		},
 	}, nil, nil)
 	if err != nil {

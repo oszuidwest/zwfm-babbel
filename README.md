@@ -24,7 +24,7 @@ Babbel connects to newsroom workflows and radio automation systems. It supplies 
 - **Loudness normalization** - Audio levels that agree with EBU R128 s2 (-16 LUFS)
 - **Error handling** - Error responses in the RFC 9457 Problem Details format. Every 400 and 422 response lists each rejected value in `errors[]` with `field`, `code` and `message`; see "Validation errors" in `openapi.yaml`
 - **Soft delete** - You can delete stories and users temporarily, and you can restore them
-- **Session management** - Sessions in encrypted cookies
+- **Session management** - Sessions stored in memory on the server. The cookie holds a signed session ID, and a restart logs everyone out
 - **CORS support** - Configurable cross-origin resource sharing
 
 ## Installation
@@ -202,7 +202,7 @@ Babbel finds and tests the two executables at startup with `<tool> -version`. If
 
 `POST /api/v1/stations/{id}/bulletins` returns `202 Accepted` with a `Location` header pointing to `/api/v1/bulletin-jobs/{id}`. Poll that URL until the job status is `succeeded` or `failed`; a successful job carries the created `bulletin_id`. No request body is needed; only an empty body or `{}` is accepted, and any member, including `date`, returns `400` with code `unknown_field`. Every request creates a generation job; each job generates for the local day the worker runs it. A single background worker processes jobs in order; after an unclean restart, interrupted jobs are requeued automatically.
 
-Run exactly one Babbel instance per database. Startup recovery requeues every `running` job, so a second instance would requeue jobs the first instance is still processing.
+Run exactly one Babbel instance per database. Startup recovery requeues every `running` job, so a second instance would requeue jobs the first instance is still processing. Sessions also live in the memory of one instance, so a second instance would reject them.
 
 | Env var | Default | Description |
 |---|---|---|

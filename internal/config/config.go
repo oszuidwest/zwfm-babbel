@@ -140,10 +140,8 @@ type LocalAuthConfig struct {
 
 // AuthConfig defines authentication and session settings.
 type AuthConfig struct {
-	Method AuthMethod `env:"AUTH_METHOD" envDefault:"local"`
-	// SessionSecret provides the key for session encryption (min 32 characters).
-	SessionSecret string `env:"SESSION_SECRET" envDefault:"your-secret-key-change-in-production"`
-	CookieDomain  string `env:"COOKIE_DOMAIN"`
+	Method       AuthMethod `env:"AUTH_METHOD" envDefault:"local"`
+	CookieDomain string     `env:"COOKIE_DOMAIN"`
 	// CookieSameSite accepts strict, lax, or none.
 	CookieSameSite   CookieSameSite  `env:"COOKIE_SAMESITE" envDefault:"lax"`
 	OIDCProviderURL  string          `env:"OIDC_PROVIDER_URL"`
@@ -368,14 +366,6 @@ func (c *Config) validateAuth() error {
 
 	if c.Auth.Local.MinPasswordLength < 8 || c.Auth.Local.MinPasswordLength > MaxPasswordBytes {
 		return fmt.Errorf("BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and %d", MaxPasswordBytes)
-	}
-
-	if len(c.Auth.SessionSecret) < 32 {
-		return fmt.Errorf("BABBEL_SESSION_SECRET must be at least 32 characters (got %d)", len(c.Auth.SessionSecret))
-	}
-
-	if c.Environment == EnvProduction && c.Auth.SessionSecret == "your-secret-key-change-in-production" {
-		return errors.New("BABBEL_SESSION_SECRET must be changed from default value in production")
 	}
 
 	if c.Auth.Method.SupportsOIDC() {

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -18,7 +17,7 @@ import (
 
 // Both requests load the same old session before either consumes its state.
 func TestFinishOAuthFlow_ConcurrentCallbacksConsumeStateOnce(t *testing.T) {
-	cfg := &Config{Session: SessionConfig{CookieName: "oauth-state-test", CookiePath: "/", MaxAge: 3600, SecretKey: strings.Repeat("k", 32)}}
+	cfg := &Config{Session: SessionConfig{CookieName: "oauth-state-test", CookiePath: "/", MaxAge: 3600}}
 	s := &Service{config: cfg, store: newSessionStore(cfg.Session), alerts: notify.Discard}
 	s.store = &lockedStateStore{Store: s.store, service: s, t: t}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -130,7 +129,7 @@ func (s *lockedStateStore) Save(r *http.Request, w http.ResponseWriter, session 
 }
 
 func TestFinishOAuthFlow_InvalidCookieRejectsLogin(t *testing.T) {
-	cfg := &Config{Session: SessionConfig{CookieName: "session", SecretKey: strings.Repeat("k", 32)}}
+	cfg := &Config{Session: SessionConfig{CookieName: "session"}}
 	s := &Service{config: cfg, store: newSessionStore(cfg.Session), alerts: notify.Discard}
 	var err error
 	router := gin.New()
@@ -146,7 +145,7 @@ func TestFinishOAuthFlow_InvalidCookieRejectsLogin(t *testing.T) {
 // A login replaces the session: the old cookie is logged out and has lost its
 // OAuth state, and the response carries one working cookie.
 func TestCreateSessionReplacesSession(t *testing.T) {
-	cfg := &Config{Session: SessionConfig{CookieName: "session", MaxAge: 3600, SecretKey: strings.Repeat("k", 32)}}
+	cfg := &Config{Session: SessionConfig{CookieName: "session", MaxAge: 3600}}
 	s := &Service{config: cfg, store: newSessionStore(cfg.Session), alerts: notify.Discard}
 	router := gin.New()
 	router.Use(s.SessionMiddleware())
@@ -196,7 +195,7 @@ func TestCreateSessionReplacesSession(t *testing.T) {
 // A login must not save between the reload and save of a session cleanup,
 // which would then remove it.
 func TestCreateSessionWaitsForStateLock(t *testing.T) {
-	cfg := &Config{Session: SessionConfig{CookieName: "session", SecretKey: strings.Repeat("k", 32)}}
+	cfg := &Config{Session: SessionConfig{CookieName: "session"}}
 	s := &Service{config: cfg, store: newSessionStore(cfg.Session), alerts: notify.Discard}
 	router := gin.New()
 	router.Use(s.SessionMiddleware())
@@ -233,7 +232,7 @@ func TestClearSessionUserReloadsStoredSession(t *testing.T) {
 		}, wantUser: int64(2)},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := &Config{Session: SessionConfig{CookieName: "session", SecretKey: strings.Repeat("k", 32)}}
+			cfg := &Config{Session: SessionConfig{CookieName: "session"}}
 			s := &Service{config: cfg, store: newSessionStore(cfg.Session), alerts: notify.Discard}
 			router := gin.New()
 			router.Use(s.SessionMiddleware())

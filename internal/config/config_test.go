@@ -525,7 +525,6 @@ func validConfigWithAudioTools(ffmpegPath, ffprobePath string) *Config {
 		},
 		Auth: AuthConfig{
 			Method:         AuthMethodLocal,
-			SessionSecret:  strings.Repeat("x", 32),
 			CookieSameSite: SameSiteLax,
 			Local: LocalAuthConfig{
 				MinPasswordLength:      8,

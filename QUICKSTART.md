@@ -33,7 +33,6 @@ cp .env.example .env
 
 # Generate passwords
 openssl rand -hex 32  # Save as BABBEL_DB_PASSWORD
-openssl rand -hex 16  # Save as BABBEL_SESSION_SECRET
 
 # Edit .env file
 nano .env
@@ -47,7 +46,6 @@ BABBEL_DB_PASSWORD=your_generated_64_char_password_here
 
 # API
 BABBEL_ENV=production
-BABBEL_SESSION_SECRET=your_generated_32_char_secret_here
 BABBEL_AUTH_METHOD=local
 BABBEL_ALLOWED_ORIGINS=
 
@@ -449,9 +447,8 @@ make test-all
 
 1. **Always change default passwords** immediately after installation
 2. **Use HTTPS in production** - Configure a reverse proxy (nginx, Caddy)
-3. **Set strong session secrets** - Use cryptographically secure random values
-4. **Configure CORS properly** - Set `BABBEL_ALLOWED_ORIGINS` for your frontend
-5. **Regular backups** - Automate database and audio file backups
-6. **Monitor logs** - Set up log aggregation for production
+3. **Configure CORS properly** - Set `BABBEL_ALLOWED_ORIGINS` for your frontend
+4. **Regular backups** - Automate database and audio file backups
+5. **Monitor logs** - Set up log aggregation for production
 
 For more help, see [GitHub Issues](https://github.com/oszuidwest/zwfm-babbel/issues)

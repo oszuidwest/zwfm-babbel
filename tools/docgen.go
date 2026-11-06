@@ -94,7 +94,7 @@ const markdownTemplate = `# {{.Info.Title}} API Reference
 
 ## Authentication
 
-The Babbel API uses session-based authentication with encrypted cookies. All endpoints require authentication except:
+The Babbel API uses session-based authentication with a signed session cookie. All endpoints require authentication except:
 - ` + "`GET /health`" + ` - Health check endpoint
 - ` + "`POST /sessions`" + ` - Login endpoint
 - ` + "`GET /auth/config`" + ` - Authentication configuration

@@ -117,7 +117,7 @@ func TestEngineRejectsMalformedQuery(t *testing.T) {
 	const origin = "https://app.example.com"
 	cfg := &config.Config{
 		Server:     config.ServerConfig{AllowedOrigins: origin},
-		Auth:       config.AuthConfig{Method: config.AuthMethodLocal, SessionSecret: strings.Repeat("x", 32)},
+		Auth:       config.AuthConfig{Method: config.AuthMethodLocal},
 		Automation: config.AutomationConfig{Key: "expected"},
 	}
 	authService, err := auth.NewService(buildAuthConfig(cfg), nil, nil)
