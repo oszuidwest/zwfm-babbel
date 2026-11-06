@@ -38,7 +38,6 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - babbel_uploads:/app/uploads
       - babbel_audio:/app/audio
     depends_on:
       mysql:
@@ -54,5 +53,4 @@ services:
 
 volumes:
   mysql_data:
-  babbel_uploads:
   babbel_audio:
