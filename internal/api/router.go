@@ -106,7 +106,7 @@ func buildDependencies(db *gorm.DB, cfg *config.Config, alerts notify.Alerter) (
 	})
 	stationSvc := services.NewStationService(stationRepo)
 	voiceSvc := services.NewVoiceService(voiceRepo)
-	userSvc := services.NewUserService(userRepo, txManager, buildPasswordPolicy(cfg))
+	userSvc := services.NewUserService(userRepo, txManager, passwordPolicy)
 	stationVoiceSvc := services.NewStationVoiceService(services.StationVoiceServiceDeps{
 		Alerts:           alerts,
 		TxManager:        txManager,
@@ -147,14 +147,18 @@ func buildDependencies(db *gorm.DB, cfg *config.Config, alerts notify.Alerter) (
 	}, nil
 }
 
-func buildPasswordPolicy(cfg *config.Config) services.PasswordPolicy {
-	return services.PasswordPolicy{
-		MinLength:          cfg.Auth.Local.MinPasswordLength,
-		RequireUppercase:   cfg.Auth.Local.RequireUppercase,
-		RequireLowercase:   cfg.Auth.Local.RequireLowercase,
-		RequireNumber:      cfg.Auth.Local.RequireNumber,
-		RequireSpecialChar: cfg.Auth.Local.RequireSpecialChar,
-	}
+// Repeated failed logins lock a local account for a while.
+const (
+	maxFailedLogins = 5
+	lockoutMinutes  = 15
+)
+
+// passwordPolicy is the fixed rule set for new local passwords.
+var passwordPolicy = services.PasswordPolicy{
+	MinLength:        8,
+	RequireUppercase: true,
+	RequireLowercase: true,
+	RequireNumber:    true,
 }
 
 func buildAuthConfig(cfg *config.Config) *auth.Config {
@@ -169,8 +173,8 @@ func buildAuthConfig(cfg *config.Config) *auth.Config {
 		},
 		Local: auth.LocalConfig{
 			Enabled:                cfg.Auth.Method.SupportsLocal(),
-			MaxFailedAttempts:      cfg.Auth.Local.MaxLoginAttempts,
-			LockoutDurationMinutes: cfg.Auth.Local.LockoutDurationMinutes,
+			MaxFailedAttempts:      maxFailedLogins,
+			LockoutDurationMinutes: lockoutMinutes,
 		},
 		Session: auth.SessionConfig{
 			MaxAge:         86400,

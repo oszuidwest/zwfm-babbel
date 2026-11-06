@@ -188,3 +188,18 @@ func TestEngineRejectsMalformedQuery(t *testing.T) {
 		})
 	}
 }
+
+func TestFixedPasswordPolicy(t *testing.T) {
+	t.Parallel()
+	for password, valid := range map[string]bool{
+		"Abcdefg1": true,
+		"Abcdef1":  false,
+		"abcdefg1": false,
+		"ABCDEFG1": false,
+		"Abcdefgh": false,
+	} {
+		if err := passwordPolicy.Validate(password); (err == nil) != valid {
+			t.Errorf("Validate(%q) = %v, want valid = %v", password, err, valid)
+		}
+	}
+}

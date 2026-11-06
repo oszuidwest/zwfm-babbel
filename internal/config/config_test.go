@@ -144,79 +144,6 @@ func TestValidateNotifications(t *testing.T) {
 	}
 }
 
-func TestValidateLocalAuthConfig(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name    string
-		mutate  func(*Config)
-		wantErr string
-	}{
-		{
-			name: "minimum password length below floor",
-			mutate: func(cfg *Config) {
-				cfg.Auth.Local.MinPasswordLength = 7
-			},
-			wantErr: "BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and 72",
-		},
-		{
-			name: "minimum password length above bcrypt limit",
-			mutate: func(cfg *Config) {
-				cfg.Auth.Local.MinPasswordLength = 73
-			},
-			wantErr: "BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and 72",
-		},
-		{
-			name: "max login attempts too low",
-			mutate: func(cfg *Config) {
-				cfg.Auth.Local.MaxLoginAttempts = 0
-			},
-			wantErr: "BABBEL_AUTH_MAX_LOGIN_ATTEMPTS must be >= 1",
-		},
-		{
-			name: "lockout duration too low",
-			mutate: func(cfg *Config) {
-				cfg.Auth.Local.LockoutDurationMinutes = 0
-			},
-			wantErr: "BABBEL_AUTH_LOCKOUT_MINUTES must be >= 1",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			cfg := validTestConfig(t)
-			tt.mutate(cfg)
-
-			err := cfg.Validate()
-			assertErrorContains(t, err, tt.wantErr)
-		})
-	}
-}
-
-func TestValidateOIDCOnlySkipsLoginLimitsButEnforcesPasswordBounds(t *testing.T) {
-	t.Parallel()
-
-	cfg := validTestConfig(t)
-	cfg.Auth.Method = AuthMethodOIDC
-	cfg.Auth.OIDCProviderURL = "https://example.com"
-	cfg.Auth.OIDCClientID = "client-id"
-	cfg.Auth.OIDCClientSecret = "client-secret"
-	cfg.Auth.OIDCRedirectURL = "https://api.example.com/api/v1/auth/oauth/callback"
-	cfg.FrontendURL = "https://app.example.com"
-	cfg.Auth.Local.MaxLoginAttempts = 0
-	cfg.Auth.Local.LockoutDurationMinutes = 0
-
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	for _, length := range []int{1, 73} {
-		cfg.Auth.Local.MinPasswordLength = length
-		assertErrorContains(t, cfg.Validate(), "BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and 72")
-	}
-}
-
 func TestValidateRejectsUnsafeSettings(t *testing.T) {
 	t.Parallel()
 
@@ -380,14 +307,6 @@ func validConfigWithAudioTools(ffmpegPath, ffprobePath string) *Config {
 		Auth: AuthConfig{
 			Method:         AuthMethodLocal,
 			CookieSameSite: SameSiteLax,
-			Local: LocalAuthConfig{
-				MinPasswordLength:      8,
-				RequireUppercase:       true,
-				RequireLowercase:       true,
-				RequireNumber:          true,
-				MaxLoginAttempts:       5,
-				LockoutDurationMinutes: 15,
-			},
 		},
 		Audio: AudioConfig{
 			FFmpegPath:        ffmpegPath,
