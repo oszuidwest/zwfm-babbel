@@ -426,8 +426,10 @@ go mod download
 mysql -u root -p < migrations/001_complete_schema.sql
 
 # Configure environment
-cp .env.example .env
-# Edit .env with your local settings
+# The binary does not read .env, so export these values in your shell.
+# Without BABBEL_ENV=development the server runs in production mode.
+export BABBEL_ENV=development
+export BABBEL_DB_PASSWORD=your_local_db_password
 
 # Run development server
 make run

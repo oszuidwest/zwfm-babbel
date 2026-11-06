@@ -30,7 +30,7 @@ type Config struct {
 	// LogLevel values of 5 or higher enable debug logging; lower values log at info.
 	LogLevel int `env:"LOG_LEVEL" envDefault:"4"`
 	// Environment accepts development or production.
-	Environment Environment `env:"ENV" envDefault:"development"`
+	Environment Environment `env:"ENV" envDefault:"production"`
 	// FrontendURL is the OAuth post-login redirect base.
 	FrontendURL string `env:"FRONTEND_URL"`
 }
@@ -113,7 +113,7 @@ type DatabaseConfig struct {
 	Host            string        `env:"HOST" envDefault:"localhost"`
 	Port            int           `env:"PORT" envDefault:"3306"`
 	User            string        `env:"USER" envDefault:"babbel"`
-	Password        string        `env:"PASSWORD" envDefault:"babbel"`
+	Password        string        `env:"PASSWORD"`
 	Database        string        `env:"NAME" envDefault:"babbel"`
 	MaxOpenConns    int           `env:"MAX_OPEN_CONNS" envDefault:"100"`
 	MaxIdleConns    int           `env:"MAX_IDLE_CONNS"`
@@ -149,7 +149,7 @@ type AuthConfig struct {
 	OIDCProviderURL  string          `env:"OIDC_PROVIDER_URL"`
 	OIDCClientID     string          `env:"OIDC_CLIENT_ID"`
 	OIDCClientSecret string          `env:"OIDC_CLIENT_SECRET"`
-	OIDCRedirectURL  string          `env:"OIDC_REDIRECT_URL" envDefault:"http://localhost:8080/api/v1/auth/oauth/callback"`
+	OIDCRedirectURL  string          `env:"OIDC_REDIRECT_URL"`
 	Local            LocalAuthConfig `envPrefix:"AUTH_"`
 }
 
@@ -340,6 +340,10 @@ func (c *Config) validateCore() error {
 		return fmt.Errorf("invalid database port: %d (must be 1-65535)", c.Database.Port)
 	}
 
+	if c.Database.Password == "" {
+		return errors.New("BABBEL_DB_PASSWORD is required")
+	}
+
 	if err := c.validateDatabasePool(); err != nil {
 		return err
 	}
@@ -349,10 +353,19 @@ func (c *Config) validateCore() error {
 	if c.BulletinJobs.GenerationTimeout <= 0 {
 		return fmt.Errorf("BABBEL_BULLETIN_JOBS_GENERATION_TIMEOUT must be > 0 (got %s)", c.BulletinJobs.GenerationTimeout)
 	}
+	// A zero retention would purge all bulletin audio at the next cleanup,
+	// except the newest bulletin per station.
+	if c.Audio.BulletinRetention <= 0 {
+		return fmt.Errorf("BABBEL_BULLETIN_RETENTION must be > 0 (got %s)", c.Audio.BulletinRetention)
+	}
 	return nil
 }
 
 func (c *Config) validateAuth() error {
+	if !c.Auth.CookieSameSite.IsValid() {
+		return fmt.Errorf("invalid BABBEL_COOKIE_SAMESITE: %s (must be strict, lax, or none)", c.Auth.CookieSameSite)
+	}
+
 	if c.Auth.Local.MinPasswordLength < 8 || c.Auth.Local.MinPasswordLength > MaxPasswordBytes {
 		return fmt.Errorf("BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and %d", MaxPasswordBytes)
 	}
@@ -389,6 +402,9 @@ func (c *Config) validateOIDC() error {
 	}
 	if c.Auth.OIDCClientSecret == "" {
 		return errors.New("BABBEL_OIDC_CLIENT_SECRET required when auth method is 'oidc' or 'both'")
+	}
+	if c.Auth.OIDCRedirectURL == "" {
+		return errors.New("BABBEL_OIDC_REDIRECT_URL required when auth method is 'oidc' or 'both'")
 	}
 	if c.FrontendURL == "" {
 		return errors.New("BABBEL_FRONTEND_URL required when auth method is 'oidc' or 'both'")

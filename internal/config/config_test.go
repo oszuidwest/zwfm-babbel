@@ -343,6 +343,7 @@ func TestValidateOIDCOnlySkipsLoginLimitsButEnforcesPasswordBounds(t *testing.T)
 	cfg.Auth.OIDCProviderURL = "https://example.com"
 	cfg.Auth.OIDCClientID = "client-id"
 	cfg.Auth.OIDCClientSecret = "client-secret"
+	cfg.Auth.OIDCRedirectURL = "https://api.example.com/api/v1/auth/oauth/callback"
 	cfg.FrontendURL = "https://app.example.com"
 	cfg.Auth.Local.MaxLoginAttempts = 0
 	cfg.Auth.Local.LockoutDurationMinutes = 0
@@ -353,6 +354,42 @@ func TestValidateOIDCOnlySkipsLoginLimitsButEnforcesPasswordBounds(t *testing.T)
 	for _, length := range []int{1, 73} {
 		cfg.Auth.Local.MinPasswordLength = length
 		assertErrorContains(t, cfg.Validate(), "BABBEL_AUTH_MIN_PASSWORD_LENGTH must be between 8 and 72")
+	}
+}
+
+func TestValidateRejectsUnsafeSettings(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		mutate  func(*Config)
+		wantErr string
+	}{
+		{name: "empty database password", mutate: func(cfg *Config) { cfg.Database.Password = "" }, wantErr: "BABBEL_DB_PASSWORD is required"},
+		{name: "zero retention", mutate: func(cfg *Config) { cfg.Audio.BulletinRetention = 0 }, wantErr: "BABBEL_BULLETIN_RETENTION must be > 0"},
+		{name: "negative retention", mutate: func(cfg *Config) { cfg.Audio.BulletinRetention = -time.Hour }, wantErr: "BABBEL_BULLETIN_RETENTION must be > 0"},
+		{name: "unknown samesite", mutate: func(cfg *Config) { cfg.Auth.CookieSameSite = "Strict" }, wantErr: "invalid BABBEL_COOKIE_SAMESITE"},
+		{
+			name: "oidc without redirect url",
+			mutate: func(cfg *Config) {
+				cfg.Auth.Method = AuthMethodBoth
+				cfg.Auth.OIDCProviderURL = "https://example.com"
+				cfg.Auth.OIDCClientID = "client-id"
+				cfg.Auth.OIDCClientSecret = "client-secret"
+			},
+			wantErr: "BABBEL_OIDC_REDIRECT_URL required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := validTestConfig(t)
+			tt.mutate(cfg)
+
+			assertErrorContains(t, cfg.Validate(), tt.wantErr)
+		})
 	}
 }
 
@@ -478,6 +515,7 @@ func validConfigWithAudioTools(ffmpegPath, ffprobePath string) *Config {
 	return &Config{
 		Database: DatabaseConfig{
 			Port:            3306,
+			Password:        "secret",
 			MaxOpenConns:    25,
 			MaxIdleConns:    5,
 			ConnMaxLifetime: 5 * time.Minute,
@@ -486,8 +524,9 @@ func validConfigWithAudioTools(ffmpegPath, ffprobePath string) *Config {
 			WriteTimeout:    2 * time.Minute,
 		},
 		Auth: AuthConfig{
-			Method:        AuthMethodLocal,
-			SessionSecret: strings.Repeat("x", 32),
+			Method:         AuthMethodLocal,
+			SessionSecret:  strings.Repeat("x", 32),
+			CookieSameSite: SameSiteLax,
 			Local: LocalAuthConfig{
 				MinPasswordLength:      8,
 				RequireUppercase:       true,
@@ -498,8 +537,9 @@ func validConfigWithAudioTools(ffmpegPath, ffprobePath string) *Config {
 			},
 		},
 		Audio: AudioConfig{
-			FFmpegPath:  ffmpegPath,
-			FFprobePath: ffprobePath,
+			FFmpegPath:        ffmpegPath,
+			FFprobePath:       ffprobePath,
+			BulletinRetention: 168 * time.Hour,
 		},
 		TTS: TTSConfig{
 			RequestTimeout: 60 * time.Second,
@@ -641,6 +681,23 @@ func TestLoadDefaultsIdleConnsToMaxOpenConns(t *testing.T) {
 				t.Fatalf("open/idle = %d/%d, want %d/%d", d.MaxOpenConns, d.MaxIdleConns, test.wantOpen, test.wantIdle)
 			}
 		})
+	}
+}
+
+func TestLoadHasNoUnsafeDefaults(t *testing.T) {
+	// The env library treats an empty variable as unset.
+	for _, key := range []string{"BABBEL_ENV", "BABBEL_DB_PASSWORD", "BABBEL_OIDC_REDIRECT_URL"} {
+		t.Setenv(key, "")
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Environment != EnvProduction {
+		t.Errorf("environment = %q, want production", cfg.Environment)
+	}
+	if cfg.Database.Password != "" || cfg.Auth.OIDCRedirectURL != "" {
+		t.Errorf("password %q and redirect URL %q must have no default", cfg.Database.Password, cfg.Auth.OIDCRedirectURL)
 	}
 }
 

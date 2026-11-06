@@ -108,7 +108,7 @@ Each bulletin WAV file uses approximately 15 MB. A background service deletes th
 - The service removes the files that have no database record.
 - The service removes abandoned audio conversions older than 24 hours directly in `BABBEL_PROCESSED_PATH`: `*.processing` directories, and `*.processing.wav` files left by earlier releases. It never follows symlinks and logs each removal.
 - The service removes regular files older than 24 hours from `BABBEL_TEMP_PATH` (upload and TTS inputs). It never follows symlinks or enters directories, and it refuses to sweep a temporary directory that is also the processed or output directory.
-- Set the retention period with `BABBEL_BULLETIN_RETENTION` (default: `168h` = 7 days).
+- Set the retention period with `BABBEL_BULLETIN_RETENTION` (default: `168h` = 7 days). The value must be greater than zero.
 
 ## Loudness Normalization
 
@@ -360,6 +360,7 @@ git clone https://github.com/oszuidwest/zwfm-babbel.git
 cd zwfm-babbel
 docker-compose up -d     # Start services
 make db-reset           # Recreate all tables (deletes data)
+export BABBEL_ENV=development BABBEL_DB_PASSWORD=babbel  # The binary does not read .env
 make run                # Run development server
 ```
 
