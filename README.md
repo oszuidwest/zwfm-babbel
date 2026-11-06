@@ -106,8 +106,8 @@ Each bulletin WAV file uses approximately 15 MB. A background service deletes th
 - The service runs at startup and then once each day. It deletes the bulletin audio files that are older than the retention period.
 - The service always keeps the latest bulletin of each station.
 - The service removes the files that have no database record.
-- The service removes abandoned audio conversions older than 24 hours directly in `BABBEL_PROCESSED_PATH`: `*.processing` directories, and `*.processing.wav` files left by earlier releases. It never follows symlinks and logs each removal.
-- The service removes regular files older than 24 hours from `BABBEL_TEMP_PATH` (upload and TTS inputs). It never follows symlinks or enters directories, and it refuses to sweep a temporary directory that is also the processed or output directory.
+- The service removes abandoned audio conversions older than 24 hours directly in `./audio/processed`: `*.processing` directories, and `*.processing.wav` files left by earlier releases. It never follows symlinks and logs each removal.
+- The service removes regular files older than 24 hours from `./audio/temp` (upload and TTS inputs). It never follows symlinks or enters directories, and it refuses to sweep a temporary directory that is also the processed or output directory.
 - Set the retention period with `BABBEL_BULLETIN_RETENTION` (default: `168h` = 7 days). The value must be greater than zero.
 
 ## Loudness Normalization
@@ -189,14 +189,9 @@ Use these environment variables to override the database connection pool default
 
 ### Audio tools
 
-Babbel uses FFmpeg for the audio mixing, the loudness normalization, and the audio analysis. You can set the paths of the executables. Do this for custom runtimes, alternative FFmpeg builds, or local development environments with different binary names.
+Babbel uses FFmpeg for the audio mixing, the loudness normalization, and the audio analysis.
 
-| Env var | Default | Description |
-|---|---|---|
-| `BABBEL_FFMPEG_PATH` | `ffmpeg` | The FFmpeg executable for the mixing and the loudness normalization. Babbel finds it through PATH at startup. |
-| `BABBEL_FFPROBE_PATH` | `ffprobe` | The ffprobe executable for the audio analysis. Babbel finds it through PATH at startup. |
-
-Babbel finds and tests the two executables at startup with `<tool> -version`. If a tool is missing or does not operate correctly, the process stops. The error message shows the related environment variable.
+Babbel finds `ffmpeg` and `ffprobe` through PATH and tests them at startup with `<tool> -version`. If a tool is missing or does not operate correctly, the process stops.
 
 ### Asynchronous bulletin generation
 

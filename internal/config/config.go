@@ -103,7 +103,6 @@ type BulletinJobConfig struct {
 
 // ServerConfig defines HTTP server and CORS settings.
 type ServerConfig struct {
-	Address string `env:"SERVER_ADDRESS" envDefault:":8080"`
 	// AllowedOrigins is a comma-separated CORS allowlist.
 	AllowedOrigins string `env:"ALLOWED_ORIGINS"`
 }
@@ -160,12 +159,12 @@ type TTSConfig struct {
 
 // AudioConfig defines audio processing and file storage settings.
 type AudioConfig struct {
-	FFmpegPath    string `env:"FFMPEG_PATH" envDefault:"ffmpeg"`
-	FFprobePath   string `env:"FFPROBE_PATH" envDefault:"ffprobe"`
-	ProcessedPath string `env:"PROCESSED_PATH" envDefault:"./audio/processed"`
-	OutputPath    string `env:"OUTPUT_PATH" envDefault:"./audio/output"`
+	FFmpegPath    string
+	FFprobePath   string
+	ProcessedPath string
+	OutputPath    string
 	// TempPath owns upload/TTS inputs; cleanup removes old regular files here.
-	TempPath string `env:"TEMP_PATH" envDefault:"./audio/temp"`
+	TempPath string
 	// BulletinRetention controls when bulletin audio files and finished job
 	// records are purged; bulletin records remain as the audit trail.
 	BulletinRetention time.Duration `env:"BULLETIN_RETENTION" envDefault:"168h"`
@@ -173,10 +172,8 @@ type AudioConfig struct {
 
 // Load reads configuration from environment variables.
 func Load() (*Config, error) {
-	cfg, err := env.ParseAsWithOptions[Config](env.Options{
-		Prefix: "BABBEL_",
-	})
-	if err != nil {
+	cfg := fixedConfig()
+	if err := env.ParseWithOptions(&cfg, env.Options{Prefix: "BABBEL_"}); err != nil {
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 	// A request can hold several connections at once. Keeping them all idle
@@ -185,6 +182,20 @@ func Load() (*Config, error) {
 		cfg.Database.MaxIdleConns = cfg.Database.MaxOpenConns
 	}
 	return &cfg, nil
+}
+
+// fixedConfig returns the settings that are code constants instead of
+// environment variables. Tests can still set these fields directly.
+func fixedConfig() Config {
+	return Config{
+		Audio: AudioConfig{
+			FFmpegPath:    "ffmpeg",
+			FFprobePath:   "ffprobe",
+			ProcessedPath: "./audio/processed",
+			OutputPath:    "./audio/output",
+			TempPath:      "./audio/temp",
+		},
+	}
 }
 
 // EnsureDirectories creates all required application directories.
@@ -403,10 +414,10 @@ func (c *Config) validateOIDC() error {
 }
 
 func (c *Config) validateAudioTools() error {
-	if err := validateAudioTool("FFmpeg", c.Audio.FFmpegPath, "BABBEL_FFMPEG_PATH"); err != nil {
+	if err := validateAudioTool("FFmpeg", c.Audio.FFmpegPath); err != nil {
 		return err
 	}
-	if err := validateAudioTool("FFprobe", c.Audio.FFprobePath, "BABBEL_FFPROBE_PATH"); err != nil {
+	if err := validateAudioTool("FFprobe", c.Audio.FFprobePath); err != nil {
 		return err
 	}
 	return nil
@@ -451,14 +462,10 @@ func (c *Config) validateLocalAuth() error {
 	return nil
 }
 
-func validateAudioTool(name, configuredPath, envVar string) error {
-	if configuredPath == "" {
-		return fmt.Errorf("%s must not be empty", envVar)
-	}
-
+func validateAudioTool(name, configuredPath string) error {
 	resolvedPath, err := exec.LookPath(configuredPath)
 	if err != nil {
-		return fmt.Errorf("%s binary not found at %q: ensure %s points to a valid binary: %w", name, configuredPath, envVar, err)
+		return fmt.Errorf("%s binary not found at %q: install the tool or fix PATH: %w", name, configuredPath, err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), audioToolVersionCheckTimeout)
@@ -473,31 +480,28 @@ func validateAudioTool(name, configuredPath, envVar string) error {
 
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return fmt.Errorf(
-			"%s binary at %q did not complete -version within %s: ensure %s points to a runnable binary",
+			"%s binary at %q did not complete -version within %s: install the tool or fix PATH",
 			name,
 			configuredPath,
 			audioToolVersionCheckTimeout,
-			envVar,
 		)
 	}
 
 	outputText := strings.TrimSpace(string(output))
 	if outputText != "" {
 		return fmt.Errorf(
-			"%s binary at %q failed -version check: %s: ensure %s points to a runnable binary: %w",
+			"%s binary at %q failed -version check: %s: install the tool or fix PATH: %w",
 			name,
 			configuredPath,
 			outputText,
-			envVar,
 			err,
 		)
 	}
 
 	return fmt.Errorf(
-		"%s binary at %q failed -version check: ensure %s points to a runnable binary: %w",
+		"%s binary at %q failed -version check: install the tool or fix PATH: %w",
 		name,
 		configuredPath,
-		envVar,
 		err,
 	)
 }

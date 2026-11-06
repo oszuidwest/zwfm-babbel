@@ -11,47 +11,18 @@ import (
 	"time"
 )
 
-func TestValidateRequiresAudioToolPaths(t *testing.T) {
-	t.Parallel()
-	runnablePath := testRunnablePath(t)
-
-	tests := []struct {
-		name    string
-		config  *Config
-		wantErr string
-	}{
-		{
-			name:    "empty ffmpeg path",
-			config:  validConfigWithAudioTools("", runnablePath),
-			wantErr: "BABBEL_FFMPEG_PATH must not be empty",
-		},
-		{
-			name:    "empty ffprobe path",
-			config:  validConfigWithAudioTools(runnablePath, ""),
-			wantErr: "BABBEL_FFPROBE_PATH must not be empty",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			assertErrorContains(t, tt.config.Validate(), tt.wantErr)
-		})
-	}
-}
-
 func TestValidateRequiresFFmpeg(t *testing.T) {
 	t.Parallel()
 	cfg := validTestConfig(t)
 	cfg.Audio.FFmpegPath = filepath.Join(t.TempDir(), "missing-ffmpeg")
-	assertErrorContains(t, cfg.Validate(), "FFmpeg binary not found", cfg.Audio.FFmpegPath, "BABBEL_FFMPEG_PATH")
+	assertErrorContains(t, cfg.Validate(), "FFmpeg binary not found", cfg.Audio.FFmpegPath, "install the tool or fix PATH")
 }
 
 func TestValidateRequiresFFprobe(t *testing.T) {
 	t.Parallel()
 	cfg := validTestConfig(t)
 	cfg.Audio.FFprobePath = filepath.Join(t.TempDir(), "missing-ffprobe")
-	assertErrorContains(t, cfg.Validate(), "FFprobe binary not found", cfg.Audio.FFprobePath, "BABBEL_FFPROBE_PATH")
+	assertErrorContains(t, cfg.Validate(), "FFprobe binary not found", cfg.Audio.FFprobePath, "install the tool or fix PATH")
 }
 
 func TestValidateAcceptsConfiguredAudioTools(t *testing.T) {
@@ -208,6 +179,26 @@ func TestValidateBulletinJobConfig(t *testing.T) {
 			err := cfg.Validate()
 			assertErrorContains(t, err, tt.wantErr)
 		})
+	}
+}
+
+func TestLoadFixedAudioSettings(t *testing.T) {
+	t.Setenv("BABBEL_BULLETIN_RETENTION", "24h")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := AudioConfig{
+		FFmpegPath:        "ffmpeg",
+		FFprobePath:       "ffprobe",
+		ProcessedPath:     "./audio/processed",
+		OutputPath:        "./audio/output",
+		TempPath:          "./audio/temp",
+		BulletinRetention: 24 * time.Hour,
+	}
+	if cfg.Audio != want {
+		t.Fatalf("audio = %+v, want %+v", cfg.Audio, want)
 	}
 }
 
@@ -411,7 +402,7 @@ func TestValidateRequiresRunnableAudioTools(t *testing.T) {
 				"FFmpeg binary",
 				"failed -version check",
 				"bad ffmpeg",
-				"BABBEL_FFMPEG_PATH",
+				"install the tool or fix PATH",
 			},
 		},
 		{
@@ -424,7 +415,7 @@ func TestValidateRequiresRunnableAudioTools(t *testing.T) {
 				"FFprobe binary",
 				"failed -version check",
 				"bad ffprobe",
-				"BABBEL_FFPROBE_PATH",
+				"install the tool or fix PATH",
 			},
 		},
 	}

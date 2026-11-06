@@ -24,7 +24,7 @@ type AudioConfig struct {
 	FilePrefix string
 	// FromOutput selects the bulletin output directory; the default is the
 	// processed-audio directory. These match the directories the audio
-	// pipeline writes to (BABBEL_OUTPUT_PATH / BABBEL_PROCESSED_PATH).
+	// pipeline writes to.
 	FromOutput bool
 }
 
