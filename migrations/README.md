@@ -88,3 +88,30 @@ the ID but no link, and a rerun does not add it. A post whose ID a story already
 has is skipped: that story keeps the ID and its link, also when it is older or
 soft-deleted. A story that already has another ID keeps it, and the highest `id`
 without an ID gets the post's ID.
+
+Apply `019_utf8mb4_tables.sql` once, after `013`, and after `017` on a database
+that has `stories.idempotency_key`, to a database with latin1 or utf8mb3 tables.
+Deploy a Babbel version with the OIDC email check from #548 first: under this
+collation an older version links a look-alike email to an existing account. Babbel
+can keep running, and each table blocks writes while it converts. Text
+those tables cannot hold, such as emoji, fails with a 500 until then. Other
+databases do not need it, and it does not change a database created from the
+current `001` snapshot. This query lists the tables it is for:
+
+    SELECT TABLE_NAME FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_COLLATION NOT LIKE 'utf8mb4%';
+
+The user needs the `ALTER` privilege on the database. Check first that these
+queries return nothing. They list names that become equal, such as `strasse` and
+`straße`. The migration stops on such a row, on MariaDB with error 1834 about a
+foreign key instead of a duplicate. Rename the row and run the migration again,
+which is safe after a stop:
+
+    SELECT GROUP_CONCAT(name) FROM stations
+    GROUP BY CONVERT(name USING utf8mb4) COLLATE utf8mb4_unicode_ci HAVING COUNT(*) > 1;
+    SELECT GROUP_CONCAT(username) FROM users
+    GROUP BY CONVERT(username USING utf8mb4) COLLATE utf8mb4_unicode_ci HAVING COUNT(*) > 1;
+
+Names and text now compare and sort under `utf8mb4_unicode_ci`: `ä` equals `a`
+and `ü` equals `u`, where `latin1_swedish_ci` kept `ä` apart and made `ü` equal
+`y`. Search and sort results can change slightly.

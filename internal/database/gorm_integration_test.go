@@ -3,6 +3,8 @@
 package database
 
 import (
+	"database/sql"
+	"os"
 	"testing"
 	"time"
 
@@ -56,6 +58,49 @@ func TestNewGormDBKeepsTimestampsInTheRepeatedHour(t *testing.T) {
 			t.Errorf("row %d = %s (epoch %d), want %s (epoch %d)", i,
 				got[i].At.UTC().Format(time.RFC3339), got[i].Epoch, want[i].Format(time.RFC3339), want[i].Unix())
 		}
+	}
+}
+
+// This reloads 001, as make db-reset does. The server default must not decide
+// which text a table takes: on latin1, a column rejects IPA, ğ and emoji.
+func TestSnapshotIsUTF8MB4OnALatin1Database(t *testing.T) {
+	cfg, err := mysql.ParseDSN(testutil.IntegrationDSN(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.MultiStatements = true
+	db, err := sql.Open("mysql", cfg.FormatDSN())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	snapshot, err := os.ReadFile("../../migrations/001_complete_schema.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := db.ExecContext(t.Context(), "ALTER DATABASE CHARACTER SET latin1 COLLATE latin1_swedish_ci"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(t.Context(), string(snapshot)); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := db.QueryContext(t.Context(), `SELECT CONCAT(TABLE_NAME, '.', COLUMN_NAME) FROM information_schema.COLUMNS
+		WHERE TABLE_SCHEMA = DATABASE() AND CHARACTER_SET_NAME <> 'utf8mb4'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var column string
+		if err := rows.Scan(&column); err != nil {
+			t.Fatal(err)
+		}
+		t.Errorf("column %s is not utf8mb4", column)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
 	}
 }
 
