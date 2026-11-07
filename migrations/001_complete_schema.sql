@@ -1,5 +1,8 @@
 -- Complete MySQL schema; fresh databases load only this file.
 
+-- A table without a charset takes this default, also where the server defaults to latin1.
+ALTER DATABASE CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 0;
 DROP TABLE IF EXISTS audit_events;
 DROP TABLE IF EXISTS bulletin_jobs;
@@ -35,7 +38,7 @@ CREATE TABLE voices (
 CREATE TABLE stories (
     id INT AUTO_INCREMENT PRIMARY KEY,
     title VARCHAR(500) NOT NULL,
-    text TEXT NOT NULL,
+    text MEDIUMTEXT NOT NULL,
     voice_id INT NULL,
     audio_file VARCHAR(500) DEFAULT '',
     duration_seconds DECIMAL(8,2) DEFAULT 0,
