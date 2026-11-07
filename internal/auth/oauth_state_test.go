@@ -232,7 +232,7 @@ func TestClearSessionUserReloadsStoredSession(t *testing.T) {
 		}, wantUser: int64(2)},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := &Config{Session: SessionConfig{CookieName: "session"}}
+			cfg := &Config{Session: SessionConfig{CookieName: "session", MaxAge: 3600}}
 			s := &Service{config: cfg, store: newSessionStore(cfg.Session), alerts: notify.Discard}
 			router := gin.New()
 			router.Use(s.SessionMiddleware())
