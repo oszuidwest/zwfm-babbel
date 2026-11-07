@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 
 const (
 	oidcDiscoveryTimeout      = 30 * time.Second
+	maxFrontendURLBytes       = 2048
 	oauthInvalidStateAlertKey = "security:oauth:invalid-state"
 	oauthMissingIDAlertKey    = "security:oauth:missing-id-token"
 	oauthInvalidTokenAlertKey = "security:oauth:invalid-id-token"
@@ -317,7 +319,9 @@ func (s *Service) StartOAuthFlow(c *gin.Context) {
 
 	if frontendURL := c.Query("frontend_url"); frontendURL != "" {
 		if s.isAllowedFrontendURL(frontendURL) {
-			session.Set(sessKeyFrontendURL, frontendURL)
+			// The session outlives the request, and a query value shares memory with
+			// the whole query string.
+			session.Set(sessKeyFrontendURL, strings.Clone(frontendURL))
 		} else {
 			logger.Warn("Rejected invalid frontend_url", "url", logger.TruncateValue(frontendURL), "url_bytes", len(frontendURL))
 		}
@@ -563,6 +567,8 @@ WHERE id = ? AND (locked_until IS NULL OR locked_until <= ?)`
 	return lockState.LockedUntil != nil && lockState.LockedUntil.After(now), nil
 }
 
+// isAllowedFrontendURL limits the length too: the session store holds this URL
+// and bounds entries, not bytes.
 func (s *Service) isAllowedFrontendURL(urlStr string) bool {
-	return config.IsURLAllowedByOrigin(urlStr, s.config.AllowedOrigins)
+	return len(urlStr) <= maxFrontendURLBytes && config.IsURLAllowedByOrigin(urlStr, s.config.AllowedOrigins)
 }
