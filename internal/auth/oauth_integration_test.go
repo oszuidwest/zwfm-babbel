@@ -209,6 +209,31 @@ func TestLegacyOAuthLinkIntegration(t *testing.T) {
 	}
 }
 
+func TestLegacyOAuthLinkEmailMatchIntegration(t *testing.T) {
+	same := func(email string) string { return email }
+	lookAlike := func(email string) string { return "\uff4f" + strings.TrimPrefix(email, "o") }
+	tests := []struct {
+		name          string
+		stored, claim func(string) string
+		wantLink      bool
+	}{
+		{name: "fullwidth claim", stored: same, claim: lookAlike},
+		{name: "fullwidth stored email", stored: lookAlike, claim: same},
+		{name: "claim differing in case", stored: same, claim: strings.ToUpper, wantLink: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newOAuthFixture(t)
+			identity := f.identity("new-subject")
+			legacy := f.createUser(t, oauthUser{Email: tt.stored(identity.Claims.Email), Role: "admin"})
+			identity.Claims.Email = tt.claim(identity.Claims.Email)
+			if row := f.login(t, identity); (row.ID == legacy.ID) != tt.wantLink {
+				t.Fatalf("login id = %d, legacy id = %d, want link %t", row.ID, legacy.ID, tt.wantLink)
+			}
+		})
+	}
+}
+
 func TestLegacyOAuthLinkSingleWinnerIntegration(t *testing.T) {
 	f := newOAuthFixture(t)
 	first, second := f.identity("first"), f.identity("second")

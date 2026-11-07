@@ -30,7 +30,14 @@ type oauthClaims struct {
 // (as with Entra ID), true, or "true".
 func (c oauthClaims) emailMayLink() bool {
 	v := c.EmailVerified
-	return c.Email != "" && (v == nil || v == true || v == "true")
+	return c.Email != "" && plainEmail(c.Email) && (v == nil || v == true || v == "true")
+}
+
+// plainEmail reports whether email is printable ASCII without spaces. The email
+// column's collation also matches look-alikes, such as a fullwidth letter or a
+// trailing space. Between these characters it only ignores case.
+func plainEmail(email string) bool {
+	return !strings.ContainsFunc(email, func(r rune) bool { return r <= ' ' || r > '~' })
 }
 
 type oauthIdentity struct {
@@ -130,6 +137,9 @@ func (s *Service) linkLegacyOAuthUser(ctx context.Context, identity oauthIdentit
 		return 0, fmt.Errorf("%w: multiple accounts match this email; contact an administrator", ErrLoginRejected)
 	}
 	user := users[0]
+	if !plainEmail(user.Email) {
+		return 0, gorm.ErrRecordNotFound
+	}
 	if _, err := user.activeID(); err != nil {
 		return 0, err
 	}
