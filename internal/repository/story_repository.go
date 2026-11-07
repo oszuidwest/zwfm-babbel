@@ -258,6 +258,7 @@ var storyFieldMapping = FieldMapping{
 	"duration_seconds": {Column: "duration_seconds", Type: filterNumber, Nullable: true},
 	"weekdays":         {Column: "weekdays", Type: filterBitmask},
 	"is_breaking":      {Column: "is_breaking", Type: filterBoolean},
+	"external_id":      {Column: "external_id", Type: filterString, Nullable: true},
 	"created_at":       {Column: "created_at", Type: filterDateTime},
 	"updated_at":       {Column: "updated_at", Type: filterDateTime},
 	"deleted_at":       {Column: "deleted_at", Type: filterDateTime, Nullable: true},
