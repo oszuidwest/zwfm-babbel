@@ -33,6 +33,10 @@ func TestOAuthClaimsEmailMayLink(t *testing.T) {
 		`{"email":"a@b.nl","email_verified":"false"}`: false,
 		`{"email":"a@b.nl","email_verified":"maybe"}`: false,
 		`{"email":"","email_verified":true}`:          false,
+		`{"email":"a!~@b.nl"}`:                        true,
+		`{"email":"a@b.nl\u007f"}`:                    false,
+		`{"email":"a@b.nl "}`:                         false,
+		`{"email":"a@b.nl\u0001"}`:                    false,
 	}
 	for raw, want := range tests {
 		var claims oauthClaims
