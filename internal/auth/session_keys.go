@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"crypto/sha256"
+
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-gonic/gin"
 )
@@ -9,6 +11,8 @@ import (
 const (
 	// sessKeyUserID stores the authenticated user's ID.
 	sessKeyUserID = "user_id"
+	// sessKeyPasswordFingerprint stores the passwordFingerprint the login saw.
+	sessKeyPasswordFingerprint = "password_fingerprint"
 	// sessKeyOAuthState stores the OAuth CSRF state token.
 	sessKeyOAuthState = "oauth_state"
 	// sessKeyFrontendURL stores the frontend URL for OAuth redirects.
@@ -19,6 +23,13 @@ const (
 func SessionFrontendURL(c *gin.Context) string {
 	s, _ := sessions.Default(c).Get(sessKeyFrontendURL).(string)
 	return s
+}
+
+// passwordFingerprint identifies a stored password hash without keeping it in
+// the session. bcrypt salts make every password change give a new hash.
+func passwordFingerprint(passwordHash string) string {
+	sum := sha256.Sum256([]byte(passwordHash))
+	return string(sum[:])
 }
 
 // coerceInt64 converts a session or context value to int64, handling the

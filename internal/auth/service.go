@@ -181,14 +181,15 @@ func (s *Service) Middleware() gin.HandlerFunc {
 		}
 
 		var user struct {
-			ID          int64
-			Role        string
-			SuspendedAt *time.Time
+			ID           int64
+			Role         string
+			PasswordHash string
+			SuspendedAt  *time.Time
 		}
 
 		err := s.db.WithContext(c.Request.Context()).
 			Table("users").
-			Select("id, role, suspended_at").
+			Select("id, role, password_hash, suspended_at").
 			Where("id = ?", userID).
 			Where("deleted_at IS NULL").
 			First(&user).Error
@@ -206,7 +207,8 @@ func (s *Service) Middleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		if err != nil || user.SuspendedAt != nil {
+		if err != nil || user.SuspendedAt != nil ||
+			session.Get(sessKeyPasswordFingerprint) != passwordFingerprint(user.PasswordHash) {
 			if saveErr := s.clearSessionUser(c, userID); saveErr != nil {
 				logger.Error("Failed to save session during cleanup", "error", saveErr)
 			}
@@ -307,7 +309,7 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 	s.alerts.Resolve(ctx, accountLockoutAlertKey(user.ID),
 		"Account lockout cleared", fmt.Sprintf("User ID %d successfully logged in again.", user.ID))
 
-	return s.CreateSession(c, user.ID)
+	return s.CreateSession(c, user.ID, user.PasswordHash)
 }
 
 // StartOAuthFlow saves the login state and redirects to the OIDC provider.
@@ -427,7 +429,12 @@ func (s *Service) FinishOAuthFlow(c *gin.Context) error {
 		return fmt.Errorf("failed to update login stats: %w", err)
 	}
 
-	if err := s.CreateSession(c, userID); err != nil {
+	var passwordHash string
+	if err := s.db.WithContext(c.Request.Context()).Table("users").Select("password_hash").Where("id = ?", userID).Scan(&passwordHash).Error; err != nil {
+		return fmt.Errorf("failed to read password hash: %w", err)
+	}
+
+	if err := s.CreateSession(c, userID, passwordHash); err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
 	}
 
@@ -488,8 +495,8 @@ func (s *Service) Logout(c *gin.Context) error {
 // OAuth flow. Middleware reads the user's role from the database on each
 // request. It saves under the OAuth state lock, so it cannot land between the
 // reload and save of a concurrent session cleanup, which would then remove this
-// login.
-func (s *Service) CreateSession(c *gin.Context, userID int64) error {
+// login. Middleware ends the session once the user's hash differs from passwordHash.
+func (s *Service) CreateSession(c *gin.Context, userID int64, passwordHash string) error {
 	s.oauthStateMu.Lock()
 	defer s.oauthStateMu.Unlock()
 	session, _ := s.store.Get(c.Request, s.config.Session.CookieName)
@@ -502,7 +509,7 @@ func (s *Service) CreateSession(c *gin.Context, userID int64) error {
 	c.Writer.Header().Del("Set-Cookie")
 	session.Options.MaxAge = maxAge
 	session.ID = ""
-	session.Values = map[any]any{sessKeyUserID: userID}
+	session.Values = map[any]any{sessKeyUserID: userID, sessKeyPasswordFingerprint: passwordFingerprint(passwordHash)}
 	return s.store.Save(c.Request, c.Writer, session)
 }
 

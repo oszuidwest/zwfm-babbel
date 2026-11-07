@@ -158,7 +158,7 @@ func TestCreateSessionReplacesSession(t *testing.T) {
 	})
 	var cachedUserID, userID, state, frontendURL any
 	router.GET("/login", func(c *gin.Context) {
-		_ = s.CreateSession(c, 1)
+		_ = s.CreateSession(c, 1, "")
 		cachedUserID = sessions.Default(c).Get(sessKeyUserID)
 	})
 	router.GET("/check", func(c *gin.Context) {
@@ -199,7 +199,7 @@ func TestCreateSessionWaitsForStateLock(t *testing.T) {
 	s := &Service{config: cfg, store: newSessionStore(cfg.Session), alerts: notify.Discard}
 	router := gin.New()
 	router.Use(s.SessionMiddleware())
-	router.GET("/login", func(c *gin.Context) { _ = s.CreateSession(c, 1) })
+	router.GET("/login", func(c *gin.Context) { _ = s.CreateSession(c, 1, "") })
 
 	s.oauthStateMu.Lock()
 	done := make(chan struct{})
