@@ -152,10 +152,6 @@ CREATE INDEX idx_stories_dates ON stories(start_date, end_date);
 CREATE INDEX idx_stories_weekdays ON stories(weekdays);
 CREATE INDEX idx_stories_is_breaking ON stories(is_breaking);
 
--- Default admin credentials: admin/admin.
-INSERT INTO users (username, full_name, password_hash, email, role, password_changed_at) VALUES 
-('admin', 'System Administrator', '$2a$10$9JLNLD7JuNuTyhsgFQlXNevfypkWJ8XLBtZcbHyJf6XB8.1DAw5gy', 'admin@babbel.local', 'admin', CURRENT_TIMESTAMP);
-
 CREATE TABLE station_voices (
     id INT AUTO_INCREMENT PRIMARY KEY,
     station_id INT NOT NULL,

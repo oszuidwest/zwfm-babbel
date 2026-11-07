@@ -4,13 +4,14 @@ This directory contains test data fixtures for the Babbel API tests.
 
 ## Files
 
+- `dev-admin.sql` - The `admin` / `admin` login for development and tests. `docker-compose.yml` and `make db-reset` load it. Never load it in production
 - `test-data.sql` - SQL file with test users, stations, voices, stories, and bulletins
 - `load-fixtures.js` - Script to load fixtures into the database
 
 ## Test Data Included
 
 ### Users
-- `admin` / `admin` - System administrator (created by main migration)
+- `admin` / `admin` - System administrator (created by `dev-admin.sql`)
 - `editor_user` / `testpass123` - Editor role
 - `viewer_user` / `testpass123` - Viewer role  
 - `suspended_user` / `testpass123` - Suspended editor (soft deleted)
@@ -51,10 +52,25 @@ Sample bulletins for testing bulletin history features
 node tests/fixtures/load-fixtures.js
 ```
 
-`load-fixtures.js` uses the `babbel-mysql` Docker container when it is running.
+`load-fixtures.js` uses the Docker container named by `MYSQL_CONTAINER` (default
+`babbel-mysql`) when it is running.
 If Docker cannot be inspected or that container is absent, it connects directly
 to MySQL using `MYSQL_HOST`, `MYSQL_USER`, `MYSQL_PASSWORD`, and
 `MYSQL_DATABASE` (defaults: `localhost`, `babbel`, `babbel`, `babbel`).
+
+This script does not load `dev-admin.sql`. The tests need that login, so on a
+database you did not create with `docker-compose.yml` or `make db-reset`, load it
+once, on the same target as the script. Without the container:
+
+```bash
+mysql -h "${MYSQL_HOST:-localhost}" -u "${MYSQL_USER:-babbel}" -p "${MYSQL_DATABASE:-babbel}" < tests/fixtures/dev-admin.sql
+```
+
+With the container:
+
+```bash
+docker exec -i "${MYSQL_CONTAINER:-babbel-mysql}" mysql -u "${MYSQL_USER:-babbel}" "-p${MYSQL_PASSWORD:-babbel}" "${MYSQL_DATABASE:-babbel}" < tests/fixtures/dev-admin.sql
+```
 
 ### In Tests
 

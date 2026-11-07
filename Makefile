@@ -141,6 +141,7 @@ db-reset:
 		exit 1; \
 	fi
 	docker exec -i babbel-mysql mysql -u babbel -pbabbel babbel < migrations/001_complete_schema.sql
+	docker exec -i babbel-mysql mysql -u babbel -pbabbel babbel < tests/fixtures/dev-admin.sql
 
 test-all:
 	@if ! command -v node >/dev/null 2>&1; then \
