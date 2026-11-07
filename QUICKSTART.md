@@ -72,13 +72,24 @@ docker compose ps
 docker compose logs -f
 ```
 
-## Step 4: First Login
+## Step 4: Create the First Admin
 
-The database includes a default admin user:
-- **Username:** `admin`
-- **Password:** `admin`
+A new database has no users, so nobody can log in yet. Neither container has a bcrypt tool, so the first command uses the official Apache image to make the hash. With `BABBEL_AUTH_METHOD=oidc`, skip this step and the curl examples in Steps 5 to 8, which use a local login, and follow [OAuth/OIDC Authentication](#oauthoidc-authentication).
 
-⚠️ **IMPORTANT:** Change this password immediately after first login!
+```bash
+# This insert skips the password check of the API, so choose a strong, unique password
+# yourself: at least 8 characters, with an uppercase letter, a lowercase letter and a number.
+# Type your password twice. This prints admin:<hash>. Copy the hash, it starts with $2y$.
+docker run --rm -it httpd:2.4-alpine htpasswd -nBC 10 admin
+
+# Put the hash in the INSERT, then run this. The quotes around 'SQL' keep the $ signs intact.
+# If an OIDC login already took the name admin, the INSERT fails: use another username,
+# here and in the login examples below.
+docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u "$MYSQL_USER" "$MYSQL_DATABASE"' <<'SQL'
+INSERT INTO users (username, full_name, password_hash, role)
+VALUES ('admin', 'Administrator', 'PASTE_THE_HASH_HERE', 'admin');
+SQL
+```
 
 ## Step 5: Test the Installation
 
@@ -87,10 +98,13 @@ The database includes a default admin user:
 curl http://localhost:8080/health
 # Should return: {"service":"babbel-api","status":"ok"}
 
-# Login (note: endpoint is /sessions, not /session/login)
-curl -c cookies.txt -X POST http://localhost:8080/api/v1/sessions \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin"}'
+# Login (note: endpoint is /sessions, not /session/login). This reads the password
+# without showing it. In the JSON, write a " or \ in the password as \" or \\.
+printf 'Password: '; IFS= read -rs PASSWORD; echo
+printf '{"username":"admin","password":"%s"}' "$PASSWORD" | \
+  curl -c cookies.txt -X POST http://localhost:8080/api/v1/sessions \
+  -H "Content-Type: application/json" -d @-
+unset PASSWORD
 ```
 
 ## Step 6: Create Station and Voice
@@ -160,22 +174,27 @@ Babbel is now running at `http://localhost:8080`
 
 ### Next Steps
 
-1. **CHANGE ADMIN PASSWORD** - The default admin/admin is insecure!
-2. **Set up backup** - Regular database and audio backups
-3. **Configure firewall** - Only allow necessary ports
+1. **Set up backup** - Regular database and audio backups
+2. **Configure firewall** - Only allow necessary ports
 
 ### How to Change Admin Password
 
 ```bash
 # Login as admin
-curl -c cookies.txt -X POST http://localhost:8080/api/v1/sessions \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin"}'
+printf 'Password: '; IFS= read -rs PASSWORD; echo
+printf '{"username":"admin","password":"%s"}' "$PASSWORD" | \
+  curl -c cookies.txt -X POST http://localhost:8080/api/v1/sessions \
+  -H "Content-Type: application/json" -d @-
 
-# Change password (minimum 8 characters)
-curl -b cookies.txt -X PUT http://localhost:8080/api/v1/users/1 \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","full_name":"Administrator","password":"YourNewSecurePassword123!"}'
+# Find the id of the account you logged in with
+curl -b cookies.txt http://localhost:8080/api/v1/sessions/current
+
+# Change password (minimum 8 characters), with that id in the URL
+printf 'New password: '; IFS= read -rs PASSWORD; echo
+printf '{"password":"%s"}' "$PASSWORD" | \
+  curl -b cookies.txt -X PUT http://localhost:8080/api/v1/users/YOUR_ID \
+  -H "Content-Type: application/json" -d @-
+unset PASSWORD
 ```
 
 ### Common Commands
@@ -211,6 +230,7 @@ A newer MySQL version in the compose file upgrades the database files on its fir
 - Check health endpoint: `curl http://localhost:8080/health`
 
 **Can't login?**
+- A new database has no users until you create the first admin in Step 4
 - Verify you're using the correct endpoint: `/api/v1/sessions` (not `/session/login`)
 - Check if cookies are being saved: `cat cookies.txt`
 - Verify timezone in .env matches your location
@@ -228,7 +248,7 @@ A newer MySQL version in the compose file upgrades the database files on its fir
 **Database connection issues?**
 - Check MySQL is running: `docker compose ps`
 - Verify passwords match in .env file
-- Run migrations manually if needed:
+- Run migrations manually if needed. This deletes all data, including users, so create the first admin again as in Step 4:
   ```bash
   docker compose exec mysql mysql -u babbel -p babbel < migrations/001_complete_schema.sql
   ```
@@ -407,6 +427,17 @@ curl http://localhost:8080/api/v1/auth/config
 http://localhost:8080/api/v1/auth/oauth?frontend_url=https://your-frontend.com
 ```
 
+4. A first login creates a viewer account. Log in once, find your account in this list, and put its id in the `UPDATE` below. Someone else may have logged in first, so check that the id is yours:
+```bash
+docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u "$MYSQL_USER" "$MYSQL_DATABASE"' <<'SQL'
+SELECT id, username, full_name, email, role FROM users;
+SQL
+
+docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u "$MYSQL_USER" "$MYSQL_DATABASE"' <<'SQL'
+UPDATE users SET role = 'admin' WHERE id = YOUR_ID;
+SQL
+```
+
 ## Development Setup
 
 For local development without Docker:
@@ -419,8 +450,10 @@ cd zwfm-babbel
 # Install Go dependencies
 go mod download
 
-# Set up MySQL database
-mysql -u root -p < migrations/001_complete_schema.sql
+# Set up MySQL database, with the admin / admin development login
+mysql -u root -p -e "CREATE DATABASE babbel; CREATE USER 'babbel'@'localhost' IDENTIFIED BY 'your_local_db_password'; GRANT ALL ON babbel.* TO 'babbel'@'localhost';"
+mysql -u root -p babbel < migrations/001_complete_schema.sql
+mysql -u root -p babbel < tests/fixtures/dev-admin.sql
 
 # Configure environment
 # The binary does not read .env, so export these values in your shell.
@@ -444,10 +477,9 @@ make test-all
 
 ## Security Notes
 
-1. **Always change default passwords** immediately after installation
-2. **Use HTTPS in production** - Configure a reverse proxy (nginx, Caddy)
-3. **Configure CORS properly** - Set `BABBEL_ALLOWED_ORIGINS` for your frontend
-4. **Regular backups** - Automate database and audio file backups
-5. **Monitor logs** - Set up log aggregation for production
+1. **Use HTTPS in production** - Configure a reverse proxy (nginx, Caddy)
+2. **Configure CORS properly** - Set `BABBEL_ALLOWED_ORIGINS` for your frontend
+3. **Regular backups** - Automate database and audio file backups
+4. **Monitor logs** - Set up log aggregation for production
 
 For more help, see [GitHub Issues](https://github.com/oszuidwest/zwfm-babbel/issues)

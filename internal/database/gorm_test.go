@@ -1,6 +1,8 @@
 package database
 
 import (
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -38,5 +40,23 @@ func TestMySQLDSNTransportTimeouts(t *testing.T) {
 	}
 	if got.Timeout != want.ConnectTimeout || got.ReadTimeout != want.ReadTimeout || got.WriteTimeout != want.WriteTimeout {
 		t.Fatalf("timeouts = %v/%v/%v, want %v/%v/%v", got.Timeout, got.ReadTimeout, got.WriteTimeout, want.ConnectTimeout, want.ReadTimeout, want.WriteTimeout)
+	}
+}
+
+// A login from a public file would let anyone into a new production install.
+func TestProductionInstallSeedsNoUsers(t *testing.T) {
+	schema, err := os.ReadFile("../../migrations/001_complete_schema.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if regexp.MustCompile("(?i)\\bINTO\\s+`?users\\b").Match(schema) {
+		t.Error("001_complete_schema.sql inserts a user")
+	}
+	compose, err := os.ReadFile("../../docker-compose.prod.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(compose), "dev-admin.sql") {
+		t.Error("docker-compose.prod.yml loads the development login")
 	}
 }

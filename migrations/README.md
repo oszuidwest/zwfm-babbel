@@ -1,10 +1,15 @@
 # Migrations
 
 `001_complete_schema.sql` is the consolidated snapshot: it drops and recreates
-every table and is the only file fresh databases load (Docker Compose init and
-`make db-reset`). When a new migration ships, fold its schema into `001` as
+every table and is the only migration fresh databases load (Docker Compose init
+and `make db-reset`). When a new migration ships, fold its schema into `001` as
 well, so the snapshot stays complete and re-applying it can never leave stale
 tables behind.
+
+`001` creates no users. A production install creates its first admin by hand,
+as `QUICKSTART.md` describes. `docker-compose.yml` and `make db-reset` also load
+`tests/fixtures/dev-admin.sql`, which adds the `admin` / `admin` login that
+development and the tests use.
 
 Migrations `002` and up are deltas for existing databases. After a numbered
 delta migration has shipped on `main`, do not edit it; add a new numbered
