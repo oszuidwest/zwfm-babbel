@@ -4,13 +4,23 @@ package auth
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/gin-gonic/gin"
+	"github.com/oszuidwest/zwfm-babbel/internal/config"
+	"github.com/oszuidwest/zwfm-babbel/internal/notify"
 	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
+	"golang.org/x/oauth2"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -94,6 +104,73 @@ func (f oauthFixture) loginOwned(ctx context.Context, identity oauthIdentity) (o
 		return row, fmt.Errorf("returned id %d belongs to %q/%q, want %q/%q", id, row.OIDCIssuer, row.OIDCSubject, identity.Issuer, identity.Subject)
 	}
 	return row, nil
+}
+
+// unsignedKeySet accepts any signature: this test is about the session, not the token.
+type unsignedKeySet struct{}
+
+func (unsignedKeySet) VerifySignature(_ context.Context, jwt string) ([]byte, error) {
+	return base64.RawURLEncoding.DecodeString(strings.Split(jwt, ".")[1])
+}
+
+// An OIDC session must match the user's stored password hash, also when that
+// hash is not empty, and end when it changes.
+func TestOAuthSessionEndsOnPasswordChangeIntegration(t *testing.T) {
+	f := newOAuthFixture(t)
+	user := f.createUser(t, oauthUser{Username: "both", PasswordHash: "hash-1", OIDCIssuer: f.issuer, OIDCSubject: "both"})
+
+	claims, err := json.Marshal(map[string]any{"iss": f.issuer, "aud": "client", "sub": "both", "exp": time.Now().Add(time.Hour).Unix()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encode := base64.RawURLEncoding.EncodeToString
+	idToken := encode([]byte(`{"alg":"RS256"}`)) + "." + encode(claims) + "." + encode([]byte("signature"))
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"access_token": "token", "token_type": "bearer", "id_token": idToken})
+	}))
+	t.Cleanup(provider.Close)
+
+	cfg := &Config{Method: config.AuthMethodOIDC, OIDC: OIDCConfig{ProviderURL: f.issuer}, Session: SessionConfig{CookieName: "session", MaxAge: 3600}}
+	s := &Service{
+		config: cfg, db: f.svc.db, store: newSessionStore(cfg.Session), alerts: notify.Discard,
+		oauth:    &oauth2.Config{ClientID: "client", Endpoint: oauth2.Endpoint{AuthURL: provider.URL, TokenURL: provider.URL}},
+		verifier: oidc.NewVerifier(f.issuer, unsignedKeySet{}, &oidc.Config{ClientID: "client"}),
+	}
+	router := gin.New()
+	router.Use(s.SessionMiddleware())
+	router.GET("/start", s.StartOAuthFlow)
+	router.GET("/callback", func(c *gin.Context) {
+		if err := s.FinishOAuthFlow(c); err != nil {
+			t.Error(err)
+		}
+	})
+	router.GET("/me", s.Middleware(), func(c *gin.Context) { c.Status(http.StatusOK) })
+	send := func(path string, cookies []*http.Cookie) *httptest.ResponseRecorder {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
+		for _, cookie := range cookies {
+			req.AddCookie(cookie)
+		}
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec
+	}
+
+	start := send("/start", nil)
+	location, err := url.Parse(start.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := send("/callback?code=code&state="+location.Query().Get("state"), start.Result().Cookies()).Result().Cookies()
+	if got := send("/me", session).Code; got != http.StatusOK {
+		t.Fatalf("after login: status = %d, want 200", got)
+	}
+	if err := f.svc.db.Table("users").Where("id = ?", user.ID).Update("password_hash", "hash-2").Error; err != nil {
+		t.Fatal(err)
+	}
+	if got := send("/me", session).Code; got != http.StatusUnauthorized {
+		t.Fatalf("after password change: status = %d, want 401", got)
+	}
 }
 
 func TestNewOAuthUserIntegration(t *testing.T) {

@@ -23,7 +23,7 @@ func sessionFixture(t *testing.T) (do func(path string, cookies []*http.Cookie) 
 	router := gin.New()
 	router.Use(s.SessionMiddleware())
 	router.GET("/login", func(c *gin.Context) {
-		if err := s.CreateSession(c, 1); err != nil {
+		if err := s.CreateSession(c, 1, ""); err != nil {
 			t.Error(err)
 		}
 	})

@@ -1,3 +1,5 @@
+const ApiHelper = require('../lib/ApiHelper');
+
 describe('Authentication', () => {
   beforeAll(async () => {
     await global.api.apiLogout();
@@ -105,6 +107,28 @@ describe('Authentication', () => {
       const response = await global.api.apiCall('GET', '/sessions/current');
 
       expect(response.status).toBe(401);
+    });
+
+    test('when a password changes, then only that change ends the existing session', async () => {
+      const username = `sessionpassword${Date.now()}`;
+      const created = await global.api.apiCall('POST', '/users', {
+        username, full_name: 'Session Password', password: 'Original123!pw', role: 'viewer'
+      });
+      expect(created.status).toBe(201);
+      global.resources.track('users', created.data.id);
+      const user = new ApiHelper();
+      expect((await user.apiLogin(username, 'Original123!pw')).status).toBe(201);
+
+      const renamed = await global.api.apiCall('PUT', `/users/${created.data.id}`, { full_name: 'Renamed' });
+      expect(renamed.status).toBe(200);
+      expect(await user.isSessionActive()).toBe(true);
+
+      const changed = await global.api.apiCall('PUT', `/users/${created.data.id}`, { password: 'Changed456!pwd' });
+      expect(changed.status).toBe(200);
+      expect((await user.apiCall('GET', '/sessions/current')).status).toBe(401);
+
+      expect((await user.apiLogin(username, 'Changed456!pwd')).status).toBe(201);
+      expect(await user.isSessionActive()).toBe(true);
     });
   });
 

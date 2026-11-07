@@ -56,7 +56,7 @@ func TestMiddlewareEndsSessionOnlyForMissingUser(t *testing.T) {
 			router := gin.New()
 			router.Use(s.SessionMiddleware())
 			router.POST("/login", func(c *gin.Context) {
-				if err := s.CreateSession(c, 7); err != nil {
+				if err := s.CreateSession(c, 7, ""); err != nil {
 					t.Error(err)
 				}
 			})

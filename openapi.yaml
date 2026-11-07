@@ -4536,7 +4536,8 @@ components:
           description: |
             New password. Must satisfy the local password policy
             (see `UserInput.password`); at most 72 bytes in UTF-8. Null is
-            treated as omit.
+            treated as omit. A new password ends all sessions of this user,
+            also the caller's own when they change their own password.
         email:
           anyOf:
             - type: string
