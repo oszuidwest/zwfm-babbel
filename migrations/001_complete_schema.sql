@@ -54,7 +54,7 @@ CREATE TABLE stories (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY idx_stories_external_id (external_id),
-    FOREIGN KEY (voice_id) REFERENCES voices(id) ON DELETE SET NULL
+    FOREIGN KEY (voice_id) REFERENCES voices(id) ON DELETE RESTRICT
 );
 
 CREATE TABLE bulletins (
@@ -164,8 +164,8 @@ CREATE TABLE station_voices (
     mix_point DECIMAL(5,2) DEFAULT 0.0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (station_id) REFERENCES stations(id) ON DELETE CASCADE,
-    FOREIGN KEY (voice_id) REFERENCES voices(id) ON DELETE CASCADE,
+    FOREIGN KEY (station_id) REFERENCES stations(id) ON DELETE RESTRICT,
+    FOREIGN KEY (voice_id) REFERENCES voices(id) ON DELETE RESTRICT,
     UNIQUE KEY unique_station_voice (station_id, voice_id)
 );
 
