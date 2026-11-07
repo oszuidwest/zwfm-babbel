@@ -8,6 +8,12 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/apperrors"
 )
 
+// StatusClientClosedRequest is the non-standard status that nginx logs for a
+// request whose client closed the connection. The client never reads it; it
+// keeps the request out of the 5xx counts and, as a status of 400 or higher,
+// stops NotificationMiddleware from resolving the route's alerts.
+const StatusClientClosedRequest = 499
+
 // MessageResponse represents a simple message response (typed alternative to gin.H).
 type MessageResponse struct {
 	Message string `json:"message"`

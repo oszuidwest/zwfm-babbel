@@ -89,7 +89,7 @@ func handleServiceError(c *gin.Context, err error, fallbackResource string) {
 	// below.
 	if errors.Is(err, context.Canceled) && errors.Is(c.Request.Context().Err(), context.Canceled) {
 		logError(fallbackResource, "client_canceled", err)
-		c.AbortWithStatus(statusClientClosedRequest)
+		c.AbortWithStatus(utils.StatusClientClosedRequest)
 		return
 	}
 
@@ -239,12 +239,6 @@ func handleAudioError(c *gin.Context, err error) bool {
 	}
 	return false
 }
-
-// statusClientClosedRequest is the non-standard status that nginx logs for a
-// request whose client closed the connection. The client never reads it; it
-// keeps the request out of the 5xx counts and, as a status of 400 or higher,
-// stops NotificationMiddleware from resolving the route's alerts.
-const statusClientClosedRequest = 499
 
 const (
 	alertContextKey = "babbel.operational-alerts"

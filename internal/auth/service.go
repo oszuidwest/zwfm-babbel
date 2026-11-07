@@ -192,6 +192,20 @@ func (s *Service) Middleware() gin.HandlerFunc {
 			Where("id = ?", userID).
 			Where("deleted_at IS NULL").
 			First(&user).Error
+		// Only an answer about this user ends the session. A failed lookup says nothing.
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			// A client that went away cancels the request context. That is not a
+			// server failure.
+			if errors.Is(c.Request.Context().Err(), context.Canceled) {
+				logger.Debug("Client closed the request during the session lookup", "error", err)
+				c.AbortWithStatus(utils.StatusClientClosedRequest)
+				return
+			}
+			logger.Error("Failed to look up the session user", "user_id", userID, "error", err)
+			utils.ProblemInternalServer(c, "Failed to check session")
+			c.Abort()
+			return
+		}
 		if err != nil || user.SuspendedAt != nil {
 			if saveErr := s.clearSessionUser(c, userID); saveErr != nil {
 				logger.Error("Failed to save session during cleanup", "error", saveErr)

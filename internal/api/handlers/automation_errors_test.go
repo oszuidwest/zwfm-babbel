@@ -22,6 +22,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/repository"
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
+	"github.com/oszuidwest/zwfm-babbel/internal/utils"
 )
 
 func TestAutomationQueryFailuresUseSharedErrorHandling(t *testing.T) {
@@ -39,7 +40,7 @@ func TestAutomationQueryFailuresUseSharedErrorHandling(t *testing.T) {
 				wantStatus, wantLevel, wantAlerts := http.StatusInternalServerError, "ERROR", 1
 				if errors.Is(cause, context.Canceled) {
 					cancel()
-					wantStatus, wantLevel, wantAlerts = statusClientClosedRequest, "DEBUG", 0
+					wantStatus, wantLevel, wantAlerts = utils.StatusClientClosedRequest, "DEBUG", 0
 				} else if errors.Is(cause, context.DeadlineExceeded) {
 					wantStatus = http.StatusGatewayTimeout
 				}
@@ -101,7 +102,7 @@ func TestAutomationCanceledLockWaitIsNotServerFailure(t *testing.T) {
 	c.Set(alertContextKey, alerts)
 	h.getOrGenerateBulletin(c, &bulletinRequest{stationID: 7}, 0)
 	var record map[string]any
-	if rec.Code != statusClientClosedRequest || len(alerts.events) != 0 || json.Unmarshal(logs.Bytes(), &record) != nil || record["level"] != "DEBUG" {
+	if rec.Code != utils.StatusClientClosedRequest || len(alerts.events) != 0 || json.Unmarshal(logs.Bytes(), &record) != nil || record["level"] != "DEBUG" {
 		t.Fatalf("status = %d, alerts = %+v, logs = %s", rec.Code, alerts.events, logs)
 	}
 }
