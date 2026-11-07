@@ -115,3 +115,29 @@ which is safe after a stop:
 Names and text now compare and sort under `utf8mb4_unicode_ci`: `ä` equals `a`
 and `ü` equals `u`, where `latin1_swedish_ci` kept `ä` apart and made `ü` equal
 `y`. Search and sort results can change slightly.
+
+Stop Babbel, apply `020_refuse_delete_with_dependents.sql` once with
+`mysql ... < 020_refuse_delete_with_dependents.sql`, then start it again; the order
+against a deploy does not matter. Do not use `source` or `--force`: they carry on
+after an error and leave that key out, so check for errors. Each foreign key is
+briefly
+absent, and a delete in that moment would leave a row the new key rejects. It
+makes the foreign keys from `stories` and `station_voices` to `voices` and
+`stations` refuse a delete. A second run changes nothing. It uses the generated
+names `stories_ibfk_1`, `station_voices_ibfk_1` (station) and
+`station_voices_ibfk_2` (voice), and stops with an error if a database named them
+differently. If it stops on an `ADD CONSTRAINT`, that key is gone. The error does
+not name the row, so these queries list the rows that point at nothing. Fix those,
+then run the file again from that `ADD CONSTRAINT`, before you start Babbel.
+
+    SELECT s.id FROM stories s LEFT JOIN voices v ON v.id = s.voice_id
+    WHERE s.voice_id IS NOT NULL AND v.id IS NULL;
+    SELECT sv.id FROM station_voices sv LEFT JOIN stations st ON st.id = sv.station_id
+    WHERE st.id IS NULL;
+    SELECT sv.id FROM station_voices sv LEFT JOIN voices v ON v.id = sv.voice_id
+    WHERE v.id IS NULL;
+
+Before you start Babbel, this query must show all three keys with `RESTRICT`:
+
+    SELECT CONSTRAINT_NAME, DELETE_RULE FROM information_schema.REFERENTIAL_CONSTRAINTS
+    WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME IN ('stories', 'station_voices');

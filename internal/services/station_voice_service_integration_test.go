@@ -160,7 +160,7 @@ func TestStationVoiceService_DeleteRemovesJingleOfCommittedPair(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	// Deleting the voice on cleanup cascades to this row.
+	// The voice's cleanup removes this row.
 	other := models.StationVoice{StationID: stations[0].ID, VoiceID: voices[0].ID, MixPoint: 1,
 		AudioFile: utils.JingleFilename(stations[0].ID, voices[0].ID)}
 	if err := move.Create(&other).Error; err != nil {
@@ -250,16 +250,7 @@ func newJingleDeleteFixture(t *testing.T) jingleDeleteFixture {
 	}}
 
 	station := createTestStation(t, db)
-	voice := models.Voice{Name: t.Name()}
-	if err := db.Create(&voice).Error; err != nil {
-		t.Fatal(err)
-	}
-	// Deleting the voice cascades to its station-voices.
-	t.Cleanup(func() {
-		if err := db.Delete(&voice).Error; err != nil {
-			t.Errorf("delete voice: %v", err)
-		}
-	})
+	voice := createNamedVoice(t, db, t.Name())
 
 	txManager := &afterCommitTxManager{TxManager: repository.NewTxManager(db)}
 	service := NewStationVoiceService(StationVoiceServiceDeps{
@@ -316,6 +307,7 @@ func (m *afterCommitTxManager) WithTransaction(ctx context.Context, fn func(cont
 func TestStationVoiceService_JingleUploadRefusesChangedPair(t *testing.T) {
 	f := newJingleDeleteFixture(t)
 	otherStation := createNamedStation(t, f.db, t.Name()+"/other")
+	t.Cleanup(func() { f.db.Delete(&models.StationVoice{}, f.stationVoice.ID) })
 
 	stored, err := f.uploadAfterUpdate(t, &UpdateStationVoiceRequest{StationID: &otherStation.ID})
 	if conflict, ok := errors.AsType[*apperrors.ConflictError](err); !ok || conflict.Code != "stationvoice.pair_changed" {
@@ -524,8 +516,8 @@ func createStationVoiceFixture(t *testing.T, db *gorm.DB, jingle fixtureJingle) 
 	return stations, voices, stationVoice
 }
 
-// createNamedVoice inserts a voice with the given name and deletes it on
-// cleanup.
+// createNamedVoice inserts a voice with the given name and deletes it and its
+// station-voices on cleanup.
 func createNamedVoice(t *testing.T, db *gorm.DB, name string) models.Voice {
 	t.Helper()
 	voice := models.Voice{Name: name}
@@ -533,6 +525,9 @@ func createNamedVoice(t *testing.T, db *gorm.DB, name string) models.Voice {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
+		if err := db.Where("voice_id = ?", voice.ID).Delete(&models.StationVoice{}).Error; err != nil {
+			t.Errorf("delete station-voices: %v", err)
+		}
 		if err := db.Delete(&voice).Error; err != nil {
 			t.Errorf("delete voice: %v", err)
 		}
