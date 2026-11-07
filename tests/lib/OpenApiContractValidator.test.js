@@ -504,7 +504,7 @@ describe('openapi.yaml contract invariants', () => {
     ['get', '/api/v1/voices', ['id', 'name', 'elevenlabs_voice_id', 'created_at', 'updated_at']],
     ['get', '/api/v1/stories', [
       'id', 'title', 'text', 'voice_id', 'audio_url', 'has_audio', 'status', 'start_date', 'end_date',
-      'duration_seconds', 'weekdays', 'is_breaking', 'created_at', 'updated_at', 'deleted_at'
+      'duration_seconds', 'weekdays', 'is_breaking', 'external_id', 'created_at', 'updated_at', 'deleted_at'
     ]],
     ['get', '/api/v1/users', ['id', 'username', 'full_name', 'email', 'role', 'created_at', 'updated_at']],
     ['get', '/api/v1/bulletins', BULLETIN_FILTER_FIELDS],

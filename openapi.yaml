@@ -1258,6 +1258,11 @@ paths:
         - `filter[has_audio]=false` - Stories without audio
         - `filter[has_audio]=true` - Stories with audio
 
+        ## External ID Filtering
+        Find the story a sending system already created, also when it is deleted.
+        An exact match compares byte for byte. The `in` operator trims each value:
+        - `filter[external_id]=177604&trashed=with`
+
         Use cases:
         - Quality control: Find stories missing audio before publication
         - Bulk TTS: Identify stories that need text-to-speech generation
@@ -3349,6 +3354,7 @@ components:
           duration_seconds: { $ref: '#/components/schemas/NullableNumberFilter' }
           weekdays: { $ref: '#/components/schemas/BitmaskFilter' }
           is_breaking: { $ref: '#/components/schemas/BooleanFilter' }
+          external_id: { $ref: '#/components/schemas/NullableStringFilter' }
           created_at: { $ref: '#/components/schemas/DateTimeFilter' }
           updated_at: { $ref: '#/components/schemas/DateTimeFilter' }
           deleted_at: { $ref: '#/components/schemas/NullableDateTimeFilter' }

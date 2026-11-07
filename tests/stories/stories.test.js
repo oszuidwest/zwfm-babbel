@@ -772,8 +772,20 @@ describe('Stories', () => {
       ['trailing space', id => `${id} `]
     ])('when an external ID differs in %s, then it is another ID', async (_difference, change) => {
       const id = `k${externalId('exact')}`;
-      expectCreated(await createExternal({ external_id: id }));
+      const story = expectCreated(await createExternal({ external_id: id }));
       expectCreated(await createExternal({ external_id: change(id) }));
+
+      const response = await global.api.apiCall('GET', `/stories?filter[external_id]=${id}`);
+      expect(response.data.data.map(found => found.id)).toEqual([story]);
+    });
+
+    test('when filtering on an external ID with trashed=with, then finds a deleted story', async () => {
+      const id = externalId('filter');
+      const deleted = expectCreated(await createExternal({ external_id: id }));
+      expect((await global.api.apiCall('DELETE', `/stories/${deleted}`)).status).toBe(204);
+
+      const response = await global.api.apiCall('GET', `/stories?filter[external_id]=${id}&trashed=with`);
+      expect(response.data.data.map(story => story.id)).toEqual([deleted]);
     });
 
     test.each([
