@@ -368,12 +368,12 @@ func TestErrorLogLevelsByClass(t *testing.T) {
 		{
 			name:       "canceled audio upload",
 			respond:    endRequest(context.WithCancel, apperrors.Audio("Story", "convert", context.Canceled)),
-			wantStatus: statusClientClosedRequest, wantLevel: "DEBUG", wantType: "client_canceled",
+			wantStatus: utils.StatusClientClosedRequest, wantLevel: "DEBUG", wantType: "client_canceled",
 		},
 		{
 			name:       "client disconnect",
 			respond:    endRequest(context.WithCancel, canceledQuery),
-			wantStatus: statusClientClosedRequest, wantLevel: "DEBUG", wantType: "client_canceled",
+			wantStatus: utils.StatusClientClosedRequest, wantLevel: "DEBUG", wantType: "client_canceled",
 		},
 		// Operational signals.
 		{
