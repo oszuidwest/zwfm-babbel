@@ -100,8 +100,9 @@ Deploy a Babbel version with the OIDC email check from #548 first: under this
 collation an older version links a look-alike email to an existing account. Babbel
 can keep running, and each table blocks writes while it converts. Text
 those tables cannot hold, such as emoji, fails with a 500 until then. Other
-databases do not need it, and it does not change a database created from the
-current `001` snapshot. This query lists the tables it is for:
+databases do not need it. Skip it on a database created from the current `001`
+snapshot: it stops at `user_sessions`, which that snapshot no longer has. This
+query lists the tables it is for:
 
     SELECT TABLE_NAME FROM information_schema.TABLES
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_COLLATION NOT LIKE 'utf8mb4%';
@@ -146,3 +147,9 @@ Before you start Babbel, this query must show all three keys with `RESTRICT`:
 
     SELECT CONSTRAINT_NAME, DELETE_RULE FROM information_schema.REFERENTIAL_CONSTRAINTS
     WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME IN ('stories', 'station_voices');
+
+Apply `021_drop_user_sessions.sql` once, after `019`, which stops without the
+table. Babbel can keep running, and it does not matter whether you apply it
+before or after a deploy. Babbel never stored a session
+in `user_sessions`: sessions live in memory. v0.17.0 still clears the table when a
+user is deleted and ignores the error once it is gone. A second run changes nothing.

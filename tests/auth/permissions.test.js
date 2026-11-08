@@ -283,5 +283,23 @@ describe('Permissions', () => {
       const putResponse = await suspendedAdminApi.apiCall('PUT', '/settings/tts/pronunciations', { rules: [] });
       expect(putResponse.status).toBe(401);
     });
+
+    test('when deleted user has an existing session, then unauthorized', async () => {
+      await restoreAdmin();
+
+      const username = `deleteduser${Date.now()}`;
+      const deletedId = await createUser(username, 'Deleted User', 'TestPass123!', 'editor');
+
+      const deletedApi = new ApiHelper();
+      const login = await deletedApi.apiLogin(username, 'TestPass123!');
+      expect(login.status).toBe(201);
+      expect(await deletedApi.isSessionActive()).toBe(true);
+
+      const deleteResponse = await global.api.apiCall('DELETE', `/users/${deletedId}`);
+      expect(deleteResponse.status).toBe(204);
+
+      const response = await deletedApi.apiCall('GET', '/sessions/current');
+      expect(response.status).toBe(401);
+    });
   });
 });
