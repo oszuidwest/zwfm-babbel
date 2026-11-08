@@ -262,6 +262,10 @@ func (s *Service) RequirePermission(obj Resource, act Action) gin.HandlerFunc {
 // account refused. Other LocalLogin errors are server failures.
 var ErrLocalLoginRejected = errors.New("local login rejected")
 
+// dummyPasswordHash has the cost of a real hash. A login without a usable hash
+// compares against it only to take as long, and ignores the result.
+const dummyPasswordHash = "$2a$10$/81Hm9N5u6jMtwVvjXchSugxpQzPhSfbeewzhKwsmWnslHEfhWzqe" //nolint:gosec // G101: not a credential.
+
 // LocalLogin authenticates credentials and creates a session.
 func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 	if !s.config.Method.SupportsLocal() {
@@ -282,11 +286,18 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 		Where("username = ?", username).
 		Where("deleted_at IS NULL").
 		First(&user).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return fmt.Errorf("%w: invalid credentials", ErrLocalLoginRejected)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return fmt.Errorf("failed to look up user: %w", err)
+	}
+
+	// A rejected password costs one bcrypt run, also for an unknown username or
+	// an unusable hash, so the response time does not tell those apart.
+	passwordErr := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
+	if passwordErr != nil && !errors.Is(passwordErr, bcrypt.ErrMismatchedHashAndPassword) {
+		_ = bcrypt.CompareHashAndPassword([]byte(dummyPasswordHash), []byte(password))
 	}
 	if err != nil {
-		return fmt.Errorf("failed to look up user: %w", err)
+		return fmt.Errorf("%w: invalid credentials", ErrLocalLoginRejected)
 	}
 
 	if user.SuspendedAt != nil {
@@ -298,7 +309,7 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 		return fmt.Errorf("%w: account is locked", ErrLocalLoginRejected)
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+	if passwordErr != nil {
 		// An uncounted attempt fails like a failed success update, so the
 		// status code does not tell whether the password was right.
 		locked, updateErr := s.updateLoginFailure(ctx, user.ID, now)
