@@ -287,10 +287,10 @@ func (s *UserService) GetByID(ctx context.Context, id int64) (*models.User, erro
 	return user, nil
 }
 
-// SoftDelete permanently deletes a user and their sessions.
-// It rejects deletion of the last active admin.
+// SoftDelete marks a user as deleted. The session middleware then rejects
+// their sessions. It rejects deletion of the last active admin.
 func (s *UserService) SoftDelete(ctx context.Context, id int64) error {
-	err := inTransaction(ctx, s.txManager, "User", apperrors.OpDelete, func(txCtx context.Context) error {
+	return inTransaction(ctx, s.txManager, "User", apperrors.OpDelete, func(txCtx context.Context) error {
 		if err := s.requireOtherActiveAdmin(txCtx, id, "delete"); err != nil {
 			return err
 		}
@@ -299,12 +299,6 @@ func (s *UserService) SoftDelete(ctx context.Context, id int64) error {
 		}
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-
-	_ = s.repo.DeleteSessions(ctx, id)
-	return nil
 }
 
 // guardLastAdminUpdate rejects demoting or suspending the last active admin.

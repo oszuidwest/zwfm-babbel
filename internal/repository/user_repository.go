@@ -106,13 +106,6 @@ func (r *UserRepository) LockActiveAdminIDs(ctx context.Context) ([]int64, error
 	return ids, nil
 }
 
-// DeleteSessions removes all sessions for a user.
-func (r *UserRepository) DeleteSessions(ctx context.Context, userID int64) error {
-	// user_sessions is not a GORM model, so use raw SQL.
-	err := r.db.WithContext(ctx).Exec("DELETE FROM user_sessions WHERE user_id = ?", userID).Error
-	return ParseDBError(err)
-}
-
 var userFieldMapping = FieldMapping{
 	"id":         {Column: "id", Type: filterInteger},
 	"username":   {Column: "username", Type: filterString},
