@@ -411,7 +411,7 @@ curl -b cookies.txt "http://localhost:8080/api/v1/stories?fields=id,title,create
 curl -b cookies.txt "http://localhost:8080/api/v1/stories?sort=-created_at,title"
 ```
 
-Available filter operators: `eq` (the default), `ne` or `not`, `gt`, `gte`, `lt`, `lte`, `like`, `band`, `null`, `in`, `between`. Which ones a field accepts depends on its type, see [MODERN_QUERY_PARAMS.md](MODERN_QUERY_PARAMS.md).
+Available filter operators: `eq` (the default), `ne` or `not`, `gt`, `gte`, `lt`, `lte`, `like`, `band`, `null`, `in`, `between`. Which ones a field accepts depends on its type. The `filter` parameter of each list endpoint in [openapi.yaml](openapi.yaml) lists them.
 
 ### OAuth/OIDC Authentication
 
