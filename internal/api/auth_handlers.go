@@ -87,11 +87,15 @@ func (h *AuthHandlers) HandleOAuthCallback(c *gin.Context) {
 
 // Logout clears the current session. It is safe to call repeatedly.
 func (h *AuthHandlers) Logout(c *gin.Context) {
-	if err := h.authService.Logout(c); err != nil {
+	err := h.authService.Logout(c)
+	switch {
+	case errors.Is(err, auth.ErrNoSessionUser):
+		utils.ProblemAuthentication(c, "Authentication required")
+	case err != nil:
 		utils.ProblemInternalServer(c, "Failed to logout")
-		return
+	default:
+		utils.NoContent(c)
 	}
-	utils.NoContent(c)
 }
 
 // GetCurrentUser returns the authenticated user's profile and effective permissions.
