@@ -30,6 +30,7 @@ Documentation can be generated whenever `openapi.yaml` changes.
 
 Manual generation:
 ```bash
+npm ci      # once, installs the Redocly CLI from package.json
 make docs
 ```
 

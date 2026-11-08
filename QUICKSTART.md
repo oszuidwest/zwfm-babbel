@@ -279,7 +279,7 @@ A newer MySQL version in the compose file upgrades the database files on its fir
 The official Docker image is available at GitHub Container Registry:
 `ghcr.io/oszuidwest/zwfm-babbel:latest`
 
-Images are built for new releases. Version tags have no `v` prefix, for example `0.17.1`.
+Images are built for new releases. Version tags have no `v` prefix, for example `1.0.0`.
 
 ## API Usage Examples
 

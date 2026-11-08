@@ -87,7 +87,7 @@ docs:
 	@echo "  → Simple Markdown reference..."
 	@go run tools/docgen.go -input openapi.yaml -output docs/API_REFERENCE.md
 	@echo "  → Interactive HTML docs..."
-	@npx -y @redocly/cli@2.0.1 build-docs openapi.yaml \
+	@npm exec --no -- redocly build-docs openapi.yaml \
 		--output=docs/index.html \
 		--title="Babbel API Documentation" 2>/dev/null
 	@echo "✓ Generated both simple and interactive documentation"
@@ -95,12 +95,9 @@ docs:
 docs-all: docs
 	@echo "✓ Complete documentation suite generated"
 
+# Uses the Redocly CLI from package.json, so run npm ci first.
 validate-spec:
-	@if command -v redocly >/dev/null 2>&1; then \
-		redocly lint openapi.yaml; \
-	else \
-		npx -y @redocly/cli@2.0.1 lint openapi.yaml; \
-	fi
+	@npm run --silent lint:openapi
 
 # Docker
 docker:
