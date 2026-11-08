@@ -2246,6 +2246,10 @@ paths:
         This is an alternative to using PUT /users/{id} with the suspended field.
         Use this endpoint when you only want to change suspension status without providing other user fields.
         Suspending the last active admin fails with 409 `user.last_admin`.
+        A suspended user's session ends at its next request to a route that needs a
+        login. A restore before that request can let the session work again, until it
+        expires 24 hours after login.
+        Change the password to end all sessions of a user at once.
       tags:
         - Users
       parameters:
@@ -4559,7 +4563,9 @@ components:
           additionalProperties: true
         suspended:
           type: [boolean, 'null']
-          description: Set to true to suspend user, false to restore
+          description: |
+            Set to true to suspend user, false to restore. A restore can let a session
+            from before the suspension work again, see PATCH /api/v1/users/{id}.
 
     BulletinResponse:
       type: object
