@@ -4,26 +4,29 @@ This directory contains utility scripts for the Babbel project.
 
 ## Testing
 
-All testing is now handled through the Node.js test suite. See the main README for testing instructions.
+Tests run with Go (`make test`, `make test-integration`) and the Node.js integration suite (`npm test`). See the main README for testing instructions.
 
 ### Running Tests
 
 ```bash
-# Run all tests
-make test-all
-# or
-npm test
-
-# Run specific test suite
-npm run test:auth
-npm run test:stations
-npm run test:voices
-# etc.
+make test               # Go unit tests
+make test-integration   # Go integration tests against the Compose MySQL
+npm ci                  # once, installs Jest and the other Node.js tools
+npm run test:unit       # Node.js unit tests, no Docker
+npm test                # Node.js integration suite (also: make test-all)
+npm run test:auth       # One integration suite; see package.json for the others
 ```
+
+`npm test` and the single suites such as `npm run test:auth` run
+`docker compose down -v`, and `make test-integration` reloads
+`migrations/001_complete_schema.sql`. All of them wipe the database of the
+`docker-compose.yml` stack, so do not run them on a stack with data you want
+to keep.
 
 ### Requirements
 
-- Node.js >= 24.0.0
+- Go, see `go.mod`
+- Node.js >= 24.9.0
 - Docker and Docker Compose
 - FFmpeg
 
