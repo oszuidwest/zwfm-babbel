@@ -63,8 +63,6 @@ tests/
 ├── jest.setupAfterEnv.js     # Per-file setup (auth, globals, custom matchers)
 ├── fixtures/                 # Test data fixtures
 │   ├── dev-admin.sql         # admin/admin login, loaded by docker-compose.yml and make db-reset
-│   ├── test-data.sql         # SQL with test users, stations, voices, stories
-│   ├── load-fixtures.js      # Script to load test data
 │   └── README.md             # Fixture documentation
 ├── lib/
 │   ├── ApiHelper.js          # HTTP client with shared cookie-jar sessions
