@@ -18,6 +18,7 @@ import (
 	"github.com/oszuidwest/zwfm-babbel/internal/services"
 	"github.com/oszuidwest/zwfm-babbel/internal/tts"
 	"github.com/oszuidwest/zwfm-babbel/internal/utils"
+	"golang.org/x/time/rate"
 	"gorm.io/gorm"
 )
 
@@ -234,9 +235,24 @@ func registerAPIRoutes(r *gin.Engine, deps *routerDeps) {
 	registerPronunciationRulesRoutes(protected, deps)
 }
 
+// loginRateLimit caps login attempts from all clients together. A refused
+// login runs bcrypt, so without a cap a flood of logins can fill the CPU.
+func loginRateLimit() gin.HandlerFunc {
+	limiter := rate.NewLimiter(5, 10)
+	return func(c *gin.Context) {
+		if !limiter.Allow() {
+			c.Header("Retry-After", "1")
+			utils.ProblemExtended(c, http.StatusTooManyRequests, "Too many login attempts", "login.rate_limited", "Retry the request later")
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
 func registerAuthRoutes(v1 *gin.RouterGroup, deps *routerDeps) {
 	v1.GET("/auth/config", deps.authHandlers.GetAuthConfig)
-	v1.POST("/sessions", deps.authHandlers.Login)
+	v1.POST("/sessions", loginRateLimit(), deps.authHandlers.Login)
 	// Outside Middleware: logout needs no database.
 	v1.DELETE("/sessions/current", deps.authHandlers.Logout)
 	v1.GET("/auth/oauth", deps.authHandlers.StartOAuthFlow)

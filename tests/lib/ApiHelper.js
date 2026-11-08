@@ -58,7 +58,13 @@ class ApiHelper {
       }
     }
 
-    const response = await this.http(config);
+    let response = await this.http(config);
+    // Logins share one rate limit; wait as Retry-After says and try again,
+    // up to 10 times, then return the 429.
+    for (let tries = 0; response.status === 429 && endpoint === '/sessions' && tries < 10; tries++) {
+      await new Promise((resolve) => setTimeout(resolve, Number(response.headers['retry-after']) * 1000));
+      response = await this.http(config);
+    }
 
     return {
       status: response.status,

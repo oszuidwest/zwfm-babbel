@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/api/handlers"
@@ -202,4 +204,40 @@ func TestFixedPasswordPolicy(t *testing.T) {
 			t.Errorf("Validate(%q) = %v, want valid = %v", password, err, valid)
 		}
 	}
+}
+
+// TestLoginRateLimit checks that the login route lets a burst of 10 through,
+// answers the next one with 429, and lets one more through every 200 ms.
+func TestLoginRateLimit(t *testing.T) {
+	s, err := auth.NewService(&auth.Config{Method: config.AuthMethodLocal, Session: auth.SessionConfig{CookieName: "session"}}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	synctest.Test(t, func(t *testing.T) {
+		router := gin.New()
+		router.Use(s.SessionMiddleware())
+		registerAPIRoutes(router, &routerDeps{authService: s, authHandlers: NewAuthHandlers(s, testFrontendURL, nil)})
+		login := func(want int) *httptest.ResponseRecorder {
+			t.Helper()
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/sessions", strings.NewReader("{}")))
+			if rec.Code != want {
+				t.Fatalf("status = %d, want %d", rec.Code, want)
+			}
+			return rec
+		}
+		for range 10 {
+			login(http.StatusUnprocessableEntity)
+		}
+		rec := login(http.StatusTooManyRequests)
+		var problem struct{ Code string }
+		if rec.Header().Get("Retry-After") != "1" || json.Unmarshal(rec.Body.Bytes(), &problem) != nil || problem.Code != "login.rate_limited" {
+			t.Fatalf("Retry-After = %q, body = %s", rec.Header().Get("Retry-After"), rec.Body)
+		}
+		time.Sleep(199 * time.Millisecond)
+		login(http.StatusTooManyRequests)
+		time.Sleep(time.Millisecond)
+		login(http.StatusUnprocessableEntity)
+		login(http.StatusTooManyRequests)
+	})
 }
