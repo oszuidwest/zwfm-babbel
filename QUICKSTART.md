@@ -78,7 +78,9 @@ A new database has no users, so nobody can log in yet. Neither container has a b
 
 ```bash
 # This insert skips the password check of the API, so choose a strong, unique password
-# yourself: at least 8 characters, with an uppercase letter, a lowercase letter and a number.
+# yourself: at least 8 characters and at most 72 bytes, with an uppercase letter, a lowercase
+# letter and a number. Login only checks the first 72 bytes, and a password change through
+# the API refuses a longer password.
 # Type your password twice. This prints admin:<hash>. Copy the hash, it starts with $2y$.
 docker run --rm -it httpd:2.4-alpine htpasswd -nBC 10 admin
 
@@ -99,7 +101,8 @@ curl http://localhost:8080/health
 # Should return: {"service":"babbel-api","status":"ok"}
 
 # Login (note: endpoint is /sessions, not /session/login). This reads the password
-# without showing it. In the JSON, write a " or \ in the password as \" or \\.
+# without showing it. Type it with JSON escapes: a " as \", a \ as \\, a tab as \t
+# and any other control character as \u00XX with its hex code.
 printf 'Password: '; IFS= read -rs PASSWORD; echo
 printf '{"username":"admin","password":"%s"}' "$PASSWORD" | \
   curl -c cookies.txt -X POST http://localhost:8080/api/v1/sessions \
@@ -193,7 +196,7 @@ Babbel is now running at `http://localhost:8080`
 ### How to Change Admin Password
 
 ```bash
-# Login as admin
+# Login as admin, with the escapes from Step 5
 printf 'Password: '; IFS= read -rs PASSWORD; echo
 printf '{"username":"admin","password":"%s"}' "$PASSWORD" | \
   curl -c cookies.txt -X POST http://localhost:8080/api/v1/sessions \
@@ -202,7 +205,7 @@ printf '{"username":"admin","password":"%s"}' "$PASSWORD" | \
 # Find the id of the account you logged in with
 curl -b cookies.txt http://localhost:8080/api/v1/sessions/current
 
-# Change password (minimum 8 characters), with that id in the URL
+# Change password (rules from Step 4, escapes from Step 5), with that id in the URL
 printf 'New password: '; IFS= read -rs PASSWORD; echo
 printf '{"password":"%s"}' "$PASSWORD" | \
   curl -b cookies.txt -X PUT http://localhost:8080/api/v1/users/YOUR_ID \
