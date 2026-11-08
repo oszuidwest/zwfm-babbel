@@ -42,7 +42,12 @@ func (h *AuthHandlers) Login(c *gin.Context) {
 	}
 
 	if err := h.authService.LocalLogin(c, req.Username, req.Password); err != nil {
-		utils.ProblemAuthentication(c, "Invalid username or password")
+		if errors.Is(err, auth.ErrLocalLoginRejected) {
+			utils.ProblemAuthentication(c, "Invalid username or password")
+			return
+		}
+		logger.Error("Local login failed", "error", err)
+		utils.ProblemInternalServer(c, "Login failed")
 		return
 	}
 

@@ -560,6 +560,8 @@ paths:
                   - field: "password"
                     code: "required"
                     message: "is required"
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /api/v1/auth/oauth:
     get:
