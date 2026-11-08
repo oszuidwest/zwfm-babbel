@@ -1,19 +1,23 @@
 package api
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/oszuidwest/zwfm-babbel/internal/auth"
 	"github.com/oszuidwest/zwfm-babbel/internal/config"
 	"github.com/oszuidwest/zwfm-babbel/internal/testutil"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
@@ -85,5 +89,72 @@ func TestLogoutWhileDatabaseDown(t *testing.T) {
 		if rec.Code != want {
 			t.Fatalf("status = %d, want %d; body = %s", rec.Code, want, rec.Body)
 		}
+	}
+}
+
+// TestLoginTellsRejectionFromDatabaseFailure checks that Login answers 401 only
+// for refused credentials and 500 with an error log for database failures.
+func TestLoginTellsRejectionFromDatabaseFailure(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name       string
+		password   string
+		suspended  bool
+		lookupErr  error
+		writeErr   error
+		wantStatus int
+	}{
+		{name: "user lookup fails", lookupErr: errors.New("connection refused"), wantStatus: http.StatusInternalServerError},
+		{name: "unknown user", lookupErr: gorm.ErrRecordNotFound, wantStatus: http.StatusUnauthorized},
+		{name: "suspended user", suspended: true, wantStatus: http.StatusUnauthorized},
+		{name: "login stats update fails", writeErr: errors.New("connection refused"), wantStatus: http.StatusInternalServerError},
+		{name: "failed attempt count fails", password: "wrong", writeErr: errors.New("connection refused"), wantStatus: http.StatusInternalServerError},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db, err := gorm.Open(mysql.New(mysql.Config{DSN: "babbel@unix(" + filepath.Join(t.TempDir(), "none.sock") + ")/babbel", SkipInitializeWithVersion: true}),
+				&gorm.Config{DryRun: true, DisableAutomaticPing: true, SkipDefaultTransaction: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Callback().Query().Before("gorm:query").Register("test:lookup", func(tx *gorm.DB) {
+				if tt.lookupErr != nil {
+					_ = tx.AddError(tt.lookupErr)
+					return
+				}
+				user := reflect.ValueOf(tx.Statement.Dest).Elem()
+				user.FieldByName("ID").SetInt(7)
+				user.FieldByName("PasswordHash").SetString(string(hash))
+				if tt.suspended {
+					user.FieldByName("SuspendedAt").Set(reflect.ValueOf(new(time.Now())))
+				}
+			}); err != nil {
+				t.Fatal(err)
+			}
+			failWrite := func(tx *gorm.DB) { _ = tx.AddError(tt.writeErr) }
+			if err := db.Callback().Update().Before("gorm:update").Register("test:update", failWrite); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Callback().Raw().Before("gorm:raw").Register("test:raw", failWrite); err != nil {
+				t.Fatal(err)
+			}
+			s, err := auth.NewService(&auth.Config{Method: config.AuthMethodLocal, Session: auth.SessionConfig{CookieName: "session"}}, db, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			logs := testutil.CaptureLogs(t, slog.LevelError)
+			router := gin.New()
+			router.Use(s.SessionMiddleware())
+			router.POST("/sessions", NewAuthHandlers(s, testFrontendURL, nil).Login)
+			rec := httptest.NewRecorder()
+			body := strings.NewReader(`{"username":"admin","password":"` + cmp.Or(tt.password, "secret") + `"}`)
+			router.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/sessions", body))
+			if rec.Code != tt.wantStatus || strings.Contains(logs.String(), "connection refused") != (tt.wantStatus == http.StatusInternalServerError) {
+				t.Fatalf("status = %d, want %d; logs = %s", rec.Code, tt.wantStatus, logs)
+			}
+		})
 	}
 }

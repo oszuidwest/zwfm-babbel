@@ -258,10 +258,14 @@ func (s *Service) RequirePermission(obj Resource, act Action) gin.HandlerFunc {
 	}
 }
 
+// ErrLocalLoginRejected marks a local login that the credentials or the
+// account refused. Other LocalLogin errors are server failures.
+var ErrLocalLoginRejected = errors.New("local login rejected")
+
 // LocalLogin authenticates credentials and creates a session.
 func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 	if !s.config.Method.SupportsLocal() {
-		return fmt.Errorf("local authentication is disabled")
+		return fmt.Errorf("%w: local authentication is disabled", ErrLocalLoginRejected)
 	}
 
 	var user struct {
@@ -278,31 +282,37 @@ func (s *Service) LocalLogin(c *gin.Context, username, password string) error {
 		Where("username = ?", username).
 		Where("deleted_at IS NULL").
 		First(&user).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return fmt.Errorf("%w: invalid credentials", ErrLocalLoginRejected)
+	}
 	if err != nil {
-		return fmt.Errorf("invalid credentials")
+		return fmt.Errorf("failed to look up user: %w", err)
 	}
 
 	if user.SuspendedAt != nil {
-		return fmt.Errorf("account is suspended")
+		return fmt.Errorf("%w: account is suspended", ErrLocalLoginRejected)
 	}
 
 	now := time.Now()
 	if user.LockedUntil != nil && user.LockedUntil.After(now) {
-		return fmt.Errorf("account is locked")
+		return fmt.Errorf("%w: account is locked", ErrLocalLoginRejected)
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		// An uncounted attempt fails like a failed success update, so the
+		// status code does not tell whether the password was right.
 		locked, updateErr := s.updateLoginFailure(ctx, user.ID, now)
 		if updateErr != nil {
-			logger.Error("Failed to update login failure stats", "error", updateErr)
-		} else if locked {
+			return fmt.Errorf("failed to update login failure stats: %w", updateErr)
+		}
+		if locked {
 			s.alerts.Alert(ctx, notify.Event{
 				Key:     accountLockoutAlertKey(user.ID),
 				Summary: "Account locked after repeated failed logins",
 				Details: fmt.Sprintf("User ID %d reached the configured failed-login threshold.", user.ID),
 			})
 		}
-		return fmt.Errorf("invalid credentials")
+		return fmt.Errorf("%w: invalid credentials", ErrLocalLoginRejected)
 	}
 
 	if err := s.updateLoginSuccess(ctx, user.ID); err != nil {

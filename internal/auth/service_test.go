@@ -1,10 +1,13 @@
 package auth
 
 import (
+	"errors"
 	"maps"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/oszuidwest/zwfm-babbel/internal/config"
 )
 
 func TestEffectivePermissions(t *testing.T) {
@@ -139,5 +142,12 @@ func TestIsAllowedFrontendURL(t *testing.T) {
 				t.Fatalf("isAllowedFrontendURL(%q) with origins %q = %v, want %v", tt.url, origins, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestLocalLoginDisabledIsRejected(t *testing.T) {
+	s := &Service{config: &Config{Method: config.AuthMethodOIDC}}
+	if err := s.LocalLogin(nil, "admin", "secret"); !errors.Is(err, ErrLocalLoginRejected) {
+		t.Fatalf("err = %v, want ErrLocalLoginRejected", err)
 	}
 }
