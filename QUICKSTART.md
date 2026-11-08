@@ -119,6 +119,12 @@ curl -b cookies.txt -X POST http://localhost:8080/api/v1/stations \
 curl -b cookies.txt -X POST http://localhost:8080/api/v1/voices \
   -H "Content-Type: application/json" \
   -d '{"name":"Main Newsreader"}'
+
+# Link the voice to the station. A bulletin only uses stories whose voice is linked
+# to the station. A jingle is optional, see Station-Voice Relationships below.
+curl -b cookies.txt -X POST http://localhost:8080/api/v1/station-voices \
+  -H "Content-Type: application/json" \
+  -d '{"station_id":1,"voice_id":1}'
 ```
 
 ## Step 7: Upload First Story
@@ -127,17 +133,18 @@ curl -b cookies.txt -X POST http://localhost:8080/api/v1/voices \
 # Create test audio file
 ffmpeg -f lavfi -i "sine=frequency=440:duration=5" -ac 1 -ar 48000 test.wav
 
-# Create story with JSON (weekdays is a bitmask: 127 = all days, 62 = Mon-Fri, 65 = Sat+Sun)
+# Create story with JSON. A story only plays from start_date to end_date, on the days
+# in weekdays. weekdays is a bitmask: 127 = all days, 62 = Mon-Fri, 65 = Sat+Sun.
 curl -b cookies.txt -X POST http://localhost:8080/api/v1/stories \
   -H "Content-Type: application/json" \
   -d '{
     "title": "Test Story",
     "text": "This is my first news story",
     "voice_id": 1,
-    "weekdays": 62,
+    "weekdays": 127,
     "is_breaking": false,
     "start_date": "2025-01-01",
-    "end_date": "2025-12-31",
+    "end_date": "2099-12-31",
     "status": "active"
   }'
 
@@ -166,6 +173,12 @@ curl -b cookies.txt http://localhost:8080/api/v1/bulletins/1/audio \
   
 # Play the bulletin (if you have a player installed)
 # ffplay bulletin.wav  # or vlc bulletin.wav
+
+# Set the test story to draft, so new bulletins leave its tone out
+# (replace 1 with the story ID from Step 7). Automation with a max_age can
+# still get this test bulletin until you generate a new one.
+curl -b cookies.txt -X PATCH http://localhost:8080/api/v1/stories/1 \
+  -H "Content-Type: application/json" -d '{"status":"draft"}'
 ```
 
 ## You're Done!
@@ -240,8 +253,8 @@ A newer MySQL version in the compose file upgrades the database files on its fir
 - Check disk space: `df -h`
 - Verify FFmpeg: `docker compose exec babbel ffmpeg -version`
 - Ensure stories have audio files uploaded
-- Check that stories are scheduled for the current day
-- Verify voice assignments are correct
+- Check that stories are scheduled for the current day, by their dates and their weekdays
+- Check that the voice of each story is linked to the station in `/api/v1/station-voices`
 - For TTS, verify `BABBEL_ELEVENLABS_API_KEY` is set and the selected voice has an `elevenlabs_voice_id`
 - If `GET /api/v1/settings/tts` returns `tts_settings.not_initialized`, restore the singleton row from `migrations/001_complete_schema.sql` or reset with the complete schema
 
