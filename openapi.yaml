@@ -560,6 +560,28 @@ paths:
                   - field: "password"
                     code: "required"
                     message: "is required"
+        '429':
+          description: |
+            Too many login attempts from all clients together (`login.rate_limited`).
+            Babbel accepts about 5 per second, with bursts of up to 10.
+          headers:
+            Retry-After:
+              description: Number of seconds to wait before retrying
+              schema:
+                type: string
+                example: "1"
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              example:
+                type: "https://babbel.api/problems/login.rate_limited"
+                title: "Too Many Requests"
+                status: 429
+                detail: "Too many login attempts"
+                instance: "/api/v1/sessions"
+                code: "login.rate_limited"
+                hint: "Retry the request later"
         '500':
           $ref: '#/components/responses/InternalServerError'
 
