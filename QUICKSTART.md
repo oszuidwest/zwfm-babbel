@@ -282,15 +282,17 @@ Images are built for new releases. Version tags have no `v` prefix, for example 
 
 ### Working with Stories
 
+curl reads `[` and `]` in a URL as a range, so the examples with brackets use `-g` to turn that off.
+
 ```bash
-# List active stories (default, excludes soft-deleted)
+# List stories of every status, without deleted ones
 curl -b cookies.txt "http://localhost:8080/api/v1/stories"
 
 # Filter stories by voice
-curl -b cookies.txt "http://localhost:8080/api/v1/stories?filter[voice_id]=1"
+curl -g -b cookies.txt "http://localhost:8080/api/v1/stories?filter[voice_id]=1"
 
-# Get stories for specific weekday
-curl -b cookies.txt "http://localhost:8080/api/v1/stories?filter[monday]=true"
+# Get stories with Monday in weekdays (a bitmask, Monday is 2), of any status or date
+curl -g -b cookies.txt "http://localhost:8080/api/v1/stories?filter[weekdays][band]=2"
 
 # Search stories
 curl -b cookies.txt "http://localhost:8080/api/v1/stories?search=breaking%20news"
@@ -299,18 +301,16 @@ curl -b cookies.txt "http://localhost:8080/api/v1/stories?search=breaking%20news
 ### Station-Voice Relationships
 
 ```bash
-# Create station-voice relationship with JSON
-curl -b cookies.txt -X POST http://localhost:8080/api/v1/station-voices \
-  -H "Content-Type: application/json" \
-  -d '{
-    "station_id": 1,
-    "voice_id": 1,
-    "mix_point": 2.5
-  }'
-
-# Upload jingle audio separately (replace 1 with the station-voice ID from previous response)
+# Upload a jingle for the station-voice link from Step 6 (station_jingle.wav is
+# your own audio file; replace 1 with the link ID, here and below)
 curl -b cookies.txt -X POST http://localhost:8080/api/v1/station-voices/1/audio \
   -F "jingle=@station_jingle.wav"
+
+# Then start the stories 2.5 seconds into the jingle. Set this only after the upload
+# worked: the delay also applies without a jingle, as silence.
+curl -b cookies.txt -X PUT http://localhost:8080/api/v1/station-voices/1 \
+  -H "Content-Type: application/json" \
+  -d '{"mix_point": 2.5}'
 ```
 
 ### User Management
@@ -336,7 +336,7 @@ curl -b cookies.txt -X PATCH http://localhost:8080/api/v1/users/2 \
 
 ### Text-to-Speech
 
-Enable TTS by setting an ElevenLabs API key, then restart the app:
+Enable TTS by setting an ElevenLabs API key, then restart the app. A restart ends all sessions, so log in again as in Step 5:
 
 ```env
 BABBEL_ELEVENLABS_API_KEY=your-elevenlabs-api-key
@@ -363,10 +363,8 @@ curl -b cookies.txt -X PUT http://localhost:8080/api/v1/voices/1 \
   -H "Content-Type: application/json" \
   -d '{"name":"Main Newsreader","elevenlabs_voice_id":"your-elevenlabs-voice-id"}'
 
-# Generate story audio with the current global settings
-curl -b cookies.txt -X POST http://localhost:8080/api/v1/stories/1/tts
-
-# Overwrite existing story audio
+# Generate story audio with the current global settings. Story 1 already has
+# audio from Step 7, so force=true replaces it. Leave it out for a story without audio.
 curl -b cookies.txt -X POST "http://localhost:8080/api/v1/stories/1/tts?force=true"
 ```
 
@@ -404,7 +402,7 @@ Most resource list endpoints support advanced filtering and searching:
 curl -b cookies.txt "http://localhost:8080/api/v1/stories?search=breaking"
 
 # Filter with operators
-curl -b cookies.txt "http://localhost:8080/api/v1/stories?filter[created_at][gte]=2024-01-01"
+curl -g -b cookies.txt "http://localhost:8080/api/v1/stories?filter[created_at][gte]=2024-01-01"
 
 # Select specific fields
 curl -b cookies.txt "http://localhost:8080/api/v1/stories?fields=id,title,created_at"
@@ -413,7 +411,7 @@ curl -b cookies.txt "http://localhost:8080/api/v1/stories?fields=id,title,create
 curl -b cookies.txt "http://localhost:8080/api/v1/stories?sort=-created_at,title"
 ```
 
-Available filter operators: `gte`, `lte`, `gt`, `lt`, `ne`, `in`, `between`, `like`
+Available filter operators: `eq` (the default), `ne` or `not`, `gt`, `gte`, `lt`, `lte`, `like`, `band`, `null`, `in`, `between`. Which ones a field accepts depends on its type, see [MODERN_QUERY_PARAMS.md](MODERN_QUERY_PARAMS.md).
 
 ### OAuth/OIDC Authentication
 
