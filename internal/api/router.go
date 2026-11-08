@@ -237,12 +237,13 @@ func registerAPIRoutes(r *gin.Engine, deps *routerDeps) {
 func registerAuthRoutes(v1 *gin.RouterGroup, deps *routerDeps) {
 	v1.GET("/auth/config", deps.authHandlers.GetAuthConfig)
 	v1.POST("/sessions", deps.authHandlers.Login)
+	// Outside Middleware: logout needs no database.
+	v1.DELETE("/sessions/current", deps.authHandlers.Logout)
 	v1.GET("/auth/oauth", deps.authHandlers.StartOAuthFlow)
 	v1.GET("/auth/oauth/callback", deps.authHandlers.HandleOAuthCallback)
 }
 
 func registerSessionRoutes(protected *gin.RouterGroup, deps *routerDeps) {
-	protected.DELETE("/sessions/current", deps.authHandlers.Logout)
 	protected.GET("/sessions/current", deps.authHandlers.GetCurrentUser)
 }
 

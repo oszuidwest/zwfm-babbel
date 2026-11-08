@@ -483,9 +483,16 @@ func (s *Service) clearSessionUser(c *gin.Context, userID int64) error {
 	return s.store.Save(c.Request, c.Writer, session)
 }
 
-// Logout clears and saves the current session.
+// ErrNoSessionUser means the session has no logged-in user.
+var ErrNoSessionUser = errors.New("session has no user")
+
+// Logout clears and saves the current session. It reads only the session, so a
+// user can log out while the database is down.
 func (s *Service) Logout(c *gin.Context) error {
 	session := sessions.Default(c)
+	if _, ok := coerceInt64(session.Get(sessKeyUserID)); !ok {
+		return ErrNoSessionUser
+	}
 	session.Clear()
 	if err := session.Save(); err != nil {
 		logger.Error("Failed to save session during logout", "error", err)
