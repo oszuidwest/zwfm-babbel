@@ -3,6 +3,7 @@ package auth
 import (
 	"maps"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -102,6 +103,7 @@ func TestIsAllowedFrontendURL(t *testing.T) {
 	emptyOrigins := ""
 	trailingSlashOrigins := "https://app.example.com/"
 
+	longURL := "https://app.example.com/" + strings.Repeat("x", maxFrontendURLBytes)
 	tests := []struct {
 		name    string
 		origins *string
@@ -121,6 +123,8 @@ func TestIsAllowedFrontendURL(t *testing.T) {
 		{name: "malformed URL rejected", url: "://app.example.com", want: false},
 		{name: "empty config rejects all", origins: &emptyOrigins, url: "https://app.example.com/login", want: false},
 		{name: "configured trailing slash tolerated", origins: &trailingSlashOrigins, url: "https://app.example.com/login", want: true},
+		{name: "longest URL accepted", url: longURL[:maxFrontendURLBytes], want: true},
+		{name: "longer URL rejected", url: longURL[:maxFrontendURLBytes+1], want: false},
 	}
 
 	for _, tt := range tests {
