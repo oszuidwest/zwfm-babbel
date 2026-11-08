@@ -93,23 +93,29 @@ func TestLogoutWhileDatabaseDown(t *testing.T) {
 }
 
 // TestLoginTellsRejectionFromDatabaseFailure checks that Login answers 401 only
-// for refused credentials and 500 with an error log for database failures.
+// for refused credentials and 500 with an error log for database failures. A
+// 401 takes at least one bcrypt run, like a wrong password does.
 func TestLoginTellsRejectionFromDatabaseFailure(t *testing.T) {
-	hash, err := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatal(err)
 	}
 	tests := []struct {
 		name       string
 		password   string
-		suspended  bool
+		hash       *string // Replaces the valid hash.
+		suspended  *time.Time
+		lockedTill *time.Time
 		lookupErr  error
 		writeErr   error
 		wantStatus int
 	}{
 		{name: "user lookup fails", lookupErr: errors.New("connection refused"), wantStatus: http.StatusInternalServerError},
 		{name: "unknown user", lookupErr: gorm.ErrRecordNotFound, wantStatus: http.StatusUnauthorized},
-		{name: "suspended user", suspended: true, wantStatus: http.StatusUnauthorized},
+		{name: "suspended user", suspended: new(time.Now()), wantStatus: http.StatusUnauthorized},
+		{name: "suspended user without a password", suspended: new(time.Now()), hash: new(""), wantStatus: http.StatusUnauthorized},
+		{name: "suspended user with an invalid salt", suspended: new(time.Now()), hash: new("$2a$10$!!!!!!!!!!!!!!!!!!!!!!AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"), wantStatus: http.StatusUnauthorized},
+		{name: "locked user", lockedTill: new(time.Now().Add(time.Hour)), wantStatus: http.StatusUnauthorized},
 		{name: "login stats update fails", writeErr: errors.New("connection refused"), wantStatus: http.StatusInternalServerError},
 		{name: "failed attempt count fails", password: "wrong", writeErr: errors.New("connection refused"), wantStatus: http.StatusInternalServerError},
 	}
@@ -127,10 +133,13 @@ func TestLoginTellsRejectionFromDatabaseFailure(t *testing.T) {
 				}
 				user := reflect.ValueOf(tx.Statement.Dest).Elem()
 				user.FieldByName("ID").SetInt(7)
-				user.FieldByName("PasswordHash").SetString(string(hash))
-				if tt.suspended {
-					user.FieldByName("SuspendedAt").Set(reflect.ValueOf(new(time.Now())))
+				passwordHash := string(hash)
+				if tt.hash != nil {
+					passwordHash = *tt.hash
 				}
+				user.FieldByName("PasswordHash").SetString(passwordHash)
+				user.FieldByName("SuspendedAt").Set(reflect.ValueOf(tt.suspended))
+				user.FieldByName("LockedUntil").Set(reflect.ValueOf(tt.lockedTill))
 			}); err != nil {
 				t.Fatal(err)
 			}
@@ -151,7 +160,11 @@ func TestLoginTellsRejectionFromDatabaseFailure(t *testing.T) {
 			router.POST("/sessions", NewAuthHandlers(s, testFrontendURL, nil).Login)
 			rec := httptest.NewRecorder()
 			body := strings.NewReader(`{"username":"admin","password":"` + cmp.Or(tt.password, "secret") + `"}`)
+			start := time.Now()
 			router.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/sessions", body))
+			if rec.Code == http.StatusUnauthorized && time.Since(start) < 10*time.Millisecond {
+				t.Fatalf("401 after %v, want at least one bcrypt run", time.Since(start))
+			}
 			if rec.Code != tt.wantStatus || strings.Contains(logs.String(), "connection refused") != (tt.wantStatus == http.StatusInternalServerError) {
 				t.Fatalf("status = %d, want %d; logs = %s", rec.Code, tt.wantStatus, logs)
 			}
