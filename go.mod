@@ -12,7 +12,7 @@ require (
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/gorilla/securecookie v1.1.2
 	github.com/gorilla/sessions v1.4.0
-	github.com/oszuidwest/zw-graphmail v0.0.2
+	github.com/oszuidwest/zw-graphmail v0.0.3
 	golang.org/x/crypto v0.59.0
 	golang.org/x/oauth2 v0.38.0
 	golang.org/x/time v0.16.0
