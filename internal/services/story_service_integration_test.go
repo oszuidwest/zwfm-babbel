@@ -23,8 +23,8 @@ type probingStoryRepository struct {
 	probe func()
 }
 
-func (r probingStoryRepository) Restore(ctx context.Context, id int64, actorUserID *int64) error {
-	err := r.StoryRepository.Restore(ctx, id, actorUserID)
+func (r probingStoryRepository) Restore(ctx context.Context, id int64, actorUserID, deleteEventID *int64) error {
+	err := r.StoryRepository.Restore(ctx, id, actorUserID, deleteEventID)
 	r.probe()
 	return err
 }
@@ -63,7 +63,7 @@ func TestStoryService_RestoreAppliesUpdateAtomically(t *testing.T) {
 	}
 
 	actor := int64(307)
-	restored, err := service.Restore(t.Context(), story.ID, &UpdateStoryRequest{ActorUserID: &actor, StartDate: &start, EndDate: &start})
+	restored, err := service.Restore(t.Context(), story.ID, &UpdateStoryRequest{ActorUserID: &actor, StartDate: &start, EndDate: &start}, nil)
 	if err != nil {
 		t.Fatalf("Restore() error = %v", err)
 	}
@@ -114,7 +114,7 @@ func TestStoryService_RestoreRollsBackWhenUpdateFails(t *testing.T) {
 
 	// The end date lies before the start date, so the update fails after the restore ran.
 	start, end := "2030-01-02", "2030-01-01"
-	_, err := service.Restore(t.Context(), story.ID, &UpdateStoryRequest{StartDate: &start, EndDate: &end})
+	_, err := service.Restore(t.Context(), story.ID, &UpdateStoryRequest{StartDate: &start, EndDate: &end}, nil)
 	if invalid, ok := errors.AsType[*apperrors.ValidationError](err); !ok || invalid.Errors[0].Code != apperrors.CodeDateOrder {
 		t.Fatalf("Restore() error = %v, want date_order validation error", err)
 	}

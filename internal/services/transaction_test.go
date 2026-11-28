@@ -34,7 +34,7 @@ func TestTransactionFailuresAreDatabaseErrors(t *testing.T) {
 				func(context.Context) error { return nil })
 		}},
 		{"StoryService.Restore begin", "Story", apperrors.OpUpdate, func(ctx context.Context) error {
-			_, err := (&StoryService{txManager: beginFails}).Restore(ctx, 1, &UpdateStoryRequest{})
+			_, err := (&StoryService{txManager: beginFails}).Restore(ctx, 1, &UpdateStoryRequest{}, nil)
 			return err
 		}},
 		{"UserService.Update begin", "User", apperrors.OpUpdate, func(ctx context.Context) error {

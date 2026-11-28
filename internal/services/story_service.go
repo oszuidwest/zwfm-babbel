@@ -49,7 +49,7 @@ type storyRepository interface {
 	Update(context.Context, int64, *repository.StoryUpdate) error
 	Exists(context.Context, int64) (bool, error)
 	SoftDelete(context.Context, int64, *int64) error
-	Restore(context.Context, int64, *int64) error
+	Restore(context.Context, int64, *int64, *int64) error
 	UpdateAudio(context.Context, int64, repository.StoryAudioUpdate) error
 	List(context.Context, *repository.ListQuery) (*repository.ListResult[models.Story], error)
 }
@@ -322,11 +322,17 @@ func (s *StoryService) SoftDelete(ctx context.Context, id int64, actorUserID *in
 }
 
 // Restore restores and updates a story atomically, including its audit events.
-// update must be non-nil; an empty update only restores.
-func (s *StoryService) Restore(ctx context.Context, id int64, update *UpdateStoryRequest) (*models.Story, error) {
+// update must be non-nil; an empty update only restores. With deleteEventID, a
+// deleted story is restored only when that delete audit event is its current deletion.
+func (s *StoryService) Restore(ctx context.Context, id int64, update *UpdateStoryRequest, deleteEventID *int64) (*models.Story, error) {
 	var story *models.Story
 	err := inTransaction(ctx, s.txManager, "Story", apperrors.OpUpdate, func(txCtx context.Context) error {
-		if err := s.storyRepo.Restore(txCtx, id, update.ActorUserID); err != nil {
+		if err := s.storyRepo.Restore(txCtx, id, update.ActorUserID, deleteEventID); err != nil {
+			if errors.Is(err, repository.ErrDeleteEventMismatch) {
+				return apperrors.ConflictWithCause("story.delete_event_mismatch",
+					fmt.Sprintf("Delete event %d is not the current deletion of story %d", *deleteEventID, id),
+					"Read the latest delete audit event of the story and decide again", err)
+			}
 			return apperrors.TranslateRepoErrorWithID("Story", id, apperrors.OpUpdate, err)
 		}
 		var err error
