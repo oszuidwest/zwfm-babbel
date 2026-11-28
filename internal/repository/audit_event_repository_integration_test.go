@@ -63,7 +63,7 @@ func TestStoryAuditLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertAuditChange(t, deleteEvent, "deleted_at", nil, deleted.DeletedAt.Time)
-	if err := repo.Restore(t.Context(), story.ID, &actor); err != nil {
+	if err := repo.Restore(t.Context(), story.ID, &actor, nil); err != nil {
 		t.Fatal(err)
 	}
 	restored := lastStoryAuditEvent(t, db, story.ID, 4, models.AuditActionRestore)

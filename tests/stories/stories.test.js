@@ -318,6 +318,32 @@ describe('Stories', () => {
         const trashed = await global.api.apiCall('GET', `/stories?trashed=with&filter[id]=${id}`);
         expect(trashed.data.data[0].deleted_at).toEqual(expect.any(String));
       });
+
+      test('when a restore names a delete event, then it restores only that deletion', async () => {
+        const { id, path } = await deletedStory('RestoreDeleteEvent');
+        const latestDelete = async () => (await global.api.apiCall('GET',
+          `/audit-events?filter[entity_type]=story&filter[entity_id]=${id}&filter[action]=delete&sort=-id&limit=1`)).data.data[0].id;
+        const first = await latestDelete();
+        expect((await global.api.apiCall('PATCH', path, { deleted_at: '' })).status).toBe(200);
+        expect((await global.api.apiCall('DELETE', path)).status).toBe(204);
+
+        const stale = await global.api.apiCall('PATCH', path, { deleted_at: '', delete_event_id: first, title: 'Stale' });
+        expect(stale.status).toBe(409);
+        expect(stale.data.code).toBe('story.delete_event_mismatch');
+        const trashed = await global.api.apiCall('GET', `/stories?trashed=with&filter[id]=${id}`);
+        expect(trashed.data.data[0]).toMatchObject({ deleted_at: expect.any(String), title: 'RestoreDeleteEvent' });
+
+        const current = await global.api.apiCall('PATCH', path, { deleted_at: '', delete_event_id: await latestDelete(), title: 'Back' });
+        expect(current.status).toBe(200);
+        expect(current.data).toMatchObject({ deleted_at: null, title: 'Back' });
+        // A story that is not deleted gets the fields whatever the event.
+        const active = await global.api.apiCall('PATCH', path, { deleted_at: '', delete_event_id: first, title: 'Active' });
+        expect(active.status).toBe(200);
+        expect(active.data.title).toBe('Active');
+        const withoutRestore = await global.api.apiCall('PATCH', path, { status: 'draft', delete_event_id: first });
+        expect(withoutRestore.status).toBe(422);
+        expect(withoutRestore.data.errors).toEqual([expect.objectContaining({ field: 'delete_event_id', code: 'unsupported' })]);
+      });
     });
 
     describe('trashed', () => {

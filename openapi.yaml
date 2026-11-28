@@ -1909,6 +1909,15 @@ paths:
         not deleted only applies the fields. Any other `deleted_at` value
         soft-deletes the story and takes no other field.
 
+        A restore with `delete_event_id` restores a deleted story only when
+        that delete audit event is its current deletion, checked under the
+        same lock as the restore. Read the event with
+        `GET /audit-events?filter[entity_type]=story&filter[entity_id]={id}&filter[action]=delete&sort=-id&limit=1`
+        and pass its `id`. If the story was deleted again since that event, the
+        restore fails with 409 (`story.delete_event_mismatch`) and nothing
+        changes. A story that is not deleted only gets the fields. Without a
+        restore, `delete_event_id` fails with 422 (`delete_event_id`, `unsupported`).
+
         A body that sets no field fails with 422 (`request`, `empty_update`). A
         story field other than `status` without a restore, or a soft delete
         with another field, fails with 422 (`request`, `unsupported`). An
@@ -1931,6 +1940,11 @@ paths:
                 deleted_at:
                   type: string
                   description: Set to empty string ("") to restore a soft-deleted story, or any other value to soft-delete
+                delete_event_id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                  description: With `deleted_at` "", restore only when this delete audit event is the current deletion of the story
                 title:
                   $ref: '#/components/schemas/StoryUpdate/properties/title'
                 text:
@@ -1963,6 +1977,11 @@ paths:
                   start_date: "2026-10-22"
                   end_date: "2026-10-24"
                   weekdays: 127
+              restoreOwnDeletion:
+                summary: Restore a story only if a known delete is still its current deletion
+                value:
+                  deleted_at: ""
+                  delete_event_id: 4211
       responses:
         '200':
           description: Story state updated successfully (status change or restore). Returns the updated story.
@@ -5265,6 +5284,7 @@ components:
           `voice.elevenlabs_not_found`, `story.tts_text_too_long` - The story or voice is not ready for TTS
         - `stationvoice.jingle_locked` - The station or voice cannot change while the station-voice has a jingle
         - `stationvoice.pair_changed` - The station-voice moved to another station or voice while its jingle upload ran; upload it again
+        - `story.delete_event_mismatch` - A conditional restore named a delete audit event that is no longer the story's current deletion
       content:
         application/problem+json:
           schema:

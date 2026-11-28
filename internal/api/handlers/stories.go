@@ -158,13 +158,23 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 
 	var req struct {
 		utils.StoryUpdateRequest
-		DeletedAt *string `json:"deleted_at"`
+		DeletedAt     *string `json:"deleted_at"`
+		DeleteEventID *int64  `json:"delete_event_id" binding:"omitempty,min=1"`
 	}
 	if !utils.BindJSON(c, &req) {
 		return
 	}
 
 	if !utils.RequireAnyField(c, req) {
+		return
+	}
+
+	if req.DeleteEventID != nil && (req.DeletedAt == nil || *req.DeletedAt != "") {
+		utils.ProblemValidationError(c, "The request contains invalid data", apperrors.FieldError{
+			Field:   "delete_event_id",
+			Code:    apperrors.CodeUnsupported,
+			Message: "delete_event_id requires deleted_at \"\" (restore)",
+		})
 		return
 	}
 
@@ -185,7 +195,7 @@ func (h *Handlers) UpdateStoryStatus(c *gin.Context) {
 		}
 		utils.Success(c, updated)
 	case *req.DeletedAt == "":
-		restored, err := h.storySvc.Restore(c.Request.Context(), id, toStoryUpdateServiceRequest(fields, actorUserID(c)))
+		restored, err := h.storySvc.Restore(c.Request.Context(), id, toStoryUpdateServiceRequest(fields, actorUserID(c)), req.DeleteEventID)
 		if err != nil {
 			handleServiceError(c, err, "Story")
 			return

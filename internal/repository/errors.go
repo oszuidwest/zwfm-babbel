@@ -34,6 +34,10 @@ var (
 
 	// ErrStoryHasAudio indicates a StoryAudioUpdate with KeepExisting found audio.
 	ErrStoryHasAudio = errors.New("story already has audio")
+
+	// ErrDeleteEventMismatch indicates a conditional restore whose delete
+	// audit event is not the current deletion of the story.
+	ErrDeleteEventMismatch = errors.New("delete event is not the current deletion of the story")
 )
 
 // StoryDeletedError indicates a write targeted a soft-deleted story.

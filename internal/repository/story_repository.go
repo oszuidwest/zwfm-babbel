@@ -147,10 +147,16 @@ func (r *StoryRepository) SoftDelete(ctx context.Context, id int64, actorUserID 
 	})
 }
 
-// Restore clears the deleted_at timestamp.
-func (r *StoryRepository) Restore(ctx context.Context, id int64, actorUserID *int64) error {
+// Restore clears the deleted_at timestamp. With deleteEventID, a deleted story
+// is restored only when that delete audit event is its current deletion.
+func (r *StoryRepository) Restore(ctx context.Context, id int64, actorUserID, deleteEventID *int64) error {
 	return r.withAudit(ctx, id, models.AuditActionRestore, actorUserID, func(ctx context.Context) error {
 		db := DBFromContext(ctx, r.db)
+		if deleteEventID != nil {
+			if err := r.checkCurrentDeletion(ctx, id, *deleteEventID); err != nil {
+				return err
+			}
+		}
 		result := db.WithContext(ctx).Unscoped().Model(&models.Story{}).
 			Where("id = ?", id).
 			Update("deleted_at", nil)
@@ -162,6 +168,33 @@ func (r *StoryRepository) Restore(ctx context.Context, id int64, actorUserID *in
 		}
 		return nil
 	})
+}
+
+// checkCurrentDeletion reports ErrDeleteEventMismatch when a deleted story's
+// latest delete audit event is not eventID. withAudit holds the story row lock,
+// and every soft delete records its event under that lock, so the latest event
+// is the current deletion. Locking reads see it even in a transaction with an
+// older snapshot. A story that is not deleted passes.
+func (r *StoryRepository) checkCurrentDeletion(ctx context.Context, id, eventID int64) error {
+	db := DBFromContext(ctx, r.db).WithContext(ctx)
+	locking := clause.Locking{Strength: clause.LockingStrengthUpdate}
+	var story struct{ DeletedAt *time.Time }
+	if err := db.Clauses(locking).Table("stories").Select("deleted_at").Where("id = ?", id).Take(&story).Error; err != nil {
+		return ParseDBError(err)
+	}
+	if story.DeletedAt == nil {
+		return nil
+	}
+	var latest []int64
+	if err := db.Clauses(locking).Model(&models.AuditEvent{}).
+		Where("entity_type = ? AND entity_id = ? AND action = ?", models.AuditEntityStory, id, models.AuditActionDelete).
+		Order("id DESC").Limit(1).Pluck("id", &latest).Error; err != nil {
+		return ParseDBError(auditDBError(err))
+	}
+	if len(latest) == 0 || latest[0] != eventID {
+		return ErrDeleteEventMismatch
+	}
+	return nil
 }
 
 // StoryAudioUpdate describes newly processed story audio. Action records
