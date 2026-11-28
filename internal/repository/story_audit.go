@@ -12,18 +12,20 @@ import (
 
 // withAudit runs write in a transaction with the story row locked and records
 // the before/after difference as one story audit event. Writes that change
-// nothing are not recorded, except audio and TTS writes.
+// nothing are not recorded, except audio and TTS writes. Both reads are locking
+// reads, so a transaction with an older snapshot compares current values too.
 func (r *StoryRepository) withAudit(ctx context.Context, id int64, action models.AuditAction, actorUserID *int64, write func(context.Context) error) error {
 	return r.inTx(ctx, func(ctx context.Context) error {
 		db := DBFromContext(ctx, r.db).WithContext(ctx)
-		before, err := storyAuditValues(db.Clauses(clause.Locking{Strength: clause.LockingStrengthUpdate}), id)
+		locking := clause.Locking{Strength: clause.LockingStrengthUpdate}
+		before, err := storyAuditValues(db.Clauses(locking), id)
 		if err != nil {
 			return err
 		}
 		if err := write(ctx); err != nil {
 			return err
 		}
-		after, err := storyAuditValues(db, id)
+		after, err := storyAuditValues(db.Clauses(locking), id)
 		if err != nil {
 			return err
 		}
